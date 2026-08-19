@@ -6,11 +6,9 @@ import {
   MSG, encodeJson, decodeJson, decodeInput, encodeSnapshot, encodePong,
   decodePong, ACK_OFFSET,
 } from "../shared/protocol.js";
-import { TICK_DT, SNAPSHOT_EVERY, PHASE, PS } from "../shared/constants.js";
+import { TICK_DT, SNAPSHOT_EVERY, PHASE, PS, MAX_PLAYERS } from "../shared/constants.js";
 import { Sim } from "./sim.js";
 import { todayUTC } from "./db.js";
-
-const MAX_PLAYERS = 4;
 const EMPTY_GRACE_MS = 10 * 60 * 1000; // codes survive 10 min empty (SDD §3.5)
 const INPUT_FLOOD_LIMIT = 90;          // inputs/sec before we drop frames
 

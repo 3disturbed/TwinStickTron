@@ -1,7 +1,7 @@
 // DOM overlays: menu, lobby, draft, score, toasts, banners.
 // The canvas is the game; this file is everything around it.
 
-import { PILOTS, PHASE } from "/shared/constants.js";
+import { PILOTS, PHASE, MAX_PLAYERS } from "/shared/constants.js";
 import { MODS, modById } from "/shared/mods.js";
 
 const $ = (id) => document.getElementById(id);
@@ -56,7 +56,7 @@ export function showLobby(code, roster, myId) {
 export function updateRoster(roster, myId) {
   const el = $("roster");
   el.innerHTML = "";
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < MAX_PLAYERS; i++) {
     const r = roster[i];
     const slot = document.createElement("div");
     slot.className = "slot" + (r ? " filled" : "");
@@ -85,7 +85,14 @@ export async function invite(joinUrl, code) {
 }
 
 // ---------- draft ----------
-export function showDraft(offer, bankAmount, canBank) {
+export function showDraft(offer, bankAmount, canBank, grant) {
+  const g = $("class-grant");
+  if (grant) {
+    g.innerHTML = `✦ CLASS UPGRADE — <b>${grant.name}</b>: ${grant.desc}`;
+    g.classList.remove("hidden");
+  } else {
+    g.classList.add("hidden");
+  }
   const cardsEl = $("draft-cards");
   cardsEl.innerHTML = "";
   for (const id of offer) {

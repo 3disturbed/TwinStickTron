@@ -132,6 +132,11 @@ export function handleEvent(ev) {
   } else if (ev.t === "picked" && ev.who === world.myId) {
     world.myMods.push(ev.mod);
     world.myStats = computeStats(PILOTS[world.myPilot], world.myMods);
+  } else if (ev.t === "class_grant") {
+    // personal event — the free pilot-signature upgrade this intermission
+    world.myMods.push(ev.mod);
+    world.myStats = computeStats(PILOTS[world.myPilot], world.myMods);
+    world.lastGrant = ev;
   } else if (ev.t === "wave_start" || ev.t === "gameover" || ev.t === "victory") {
     world.eBullets.length = 0;
     world.lasers.length = 0;

@@ -46,8 +46,54 @@ export function baseStats(pilot) {
     streakBomb: 0,
     hitFactor: 0.5,
     rage: 0,
+    // class-mod hooks (pilot signature upgrades, granted free each intermission)
+    abilityCdr: 0,     // seconds shaved off the 12s ability cooldown
+    blinkDist: 1,      // VANTA blink range multiplier
+    blinkShots: 0,     // VANTA extra volley bullets
+    blinkNova: 0,      // VANTA departure-point explosion stacks
+    flameR: 1,         // EMBER zone radius multiplier
+    flameDur: 1,       // EMBER zone duration multiplier
+    flameDps: 1,       // EMBER burn damage multiplier
+    napalm: 0,         // EMBER dash leaves a burning trail
+    aegisR: 1,         // HALO field radius multiplier
+    aegisDur: 1,       // HALO field duration multiplier
+    aegisHeal: 0,      // HALO field heals allies on cast
+    reviveDiscount: 1, // HALO revives cost this fraction of normal insurance
+    wellR: 1,          // ONYX well radius multiplier
+    wellDur: 1,        // ONYX well duration multiplier
+    wellDmg: 0,        // ONYX extra detonation damage
   };
 }
+
+// Pilot-signature upgrades (SDD §2.7 extension): at every intermission each
+// player is GRANTED one of these at random for their pilot — free, stacking,
+// on top of the drafted pick. They deepen the pilot identity over a run.
+export const CLASS_MODS = [
+  // VANTA — Blink Volley
+  { id: "c_v_dist",  pilot: 0, name: "Long Blink",     desc: "Blink travels 40% further.",                    apply: s => { s.blinkDist *= 1.4; } },
+  { id: "c_v_shots", pilot: 0, name: "Volley Plus",    desc: "Blink volley fires 6 extra bullets.",           apply: s => { s.blinkShots += 6; } },
+  { id: "c_v_nova",  pilot: 0, name: "Echo Blink",     desc: "Blinking detonates your departure point.",      apply: s => { s.blinkNova += 1; } },
+  { id: "c_v_cdr",   pilot: 0, name: "Coil Feedback",  desc: "Blink cooldown −2s.",                           apply: s => { s.abilityCdr += 2; } },
+  // EMBER — Flame Zone
+  { id: "c_e_r",     pilot: 1, name: "Wider Burn",     desc: "Flame zone is 30% larger.",                     apply: s => { s.flameR *= 1.3; } },
+  { id: "c_e_dur",   pilot: 1, name: "Longer Burn",    desc: "Flame zone lasts 50% longer.",                  apply: s => { s.flameDur *= 1.5; } },
+  { id: "c_e_dps",   pilot: 1, name: "Hotter Burn",    desc: "Flame damage +75%.",                            apply: s => { s.flameDps *= 1.75; } },
+  { id: "c_e_trail", pilot: 1, name: "Napalm Trail",   desc: "Dashing leaves a burning trail.",               apply: s => { s.napalm += 1; } },
+  { id: "c_e_cdr",   pilot: 1, name: "Pilot Light",    desc: "Flame Zone cooldown −2s.",                      apply: s => { s.abilityCdr += 2; } },
+  // HALO — Aegis Field
+  { id: "c_h_r",     pilot: 2, name: "Wider Aegis",    desc: "Aegis Field is 30% larger.",                    apply: s => { s.aegisR *= 1.3; } },
+  { id: "c_h_dur",   pilot: 2, name: "Lasting Aegis",  desc: "Aegis Field lasts 40% longer.",                 apply: s => { s.aegisDur *= 1.4; } },
+  { id: "c_h_heal",  pilot: 2, name: "Mending Aegis",  desc: "Casting Aegis heals allies inside by 1.",       apply: s => { s.aegisHeal += 1; } },
+  { id: "c_h_rev",   pilot: 2, name: "Guardian Angel", desc: "Your revives cost half the banked score.",      apply: s => { s.reviveDiscount *= 0.5; } },
+  { id: "c_h_cdr",   pilot: 2, name: "Halo Charge",    desc: "Aegis cooldown −2s.",                           apply: s => { s.abilityCdr += 2; } },
+  // ONYX — Gravity Well
+  { id: "c_o_r",     pilot: 3, name: "Deeper Well",    desc: "Gravity Well is 30% larger.",                   apply: s => { s.wellR *= 1.3; } },
+  { id: "c_o_dur",   pilot: 3, name: "Singularity",    desc: "Gravity Well lasts 40% longer.",                apply: s => { s.wellDur *= 1.4; } },
+  { id: "c_o_dmg",   pilot: 3, name: "Crushing Well",  desc: "Well detonation deals +2 damage.",              apply: s => { s.wellDmg += 2; } },
+  { id: "c_o_cdr",   pilot: 3, name: "Dense Core",     desc: "Gravity Well cooldown −2s.",                    apply: s => { s.abilityCdr += 2; } },
+];
+
+export function classModsFor(pilot) { return CLASS_MODS.filter(m => m.pilot === pilot); }
 
 export const MODS = [
   // ---- Ballistics (what your bullets do) ----
@@ -97,7 +143,9 @@ export const MODS = [
   { id: "gambler",   family: "Echo",       rarity: 3, cursed: true, name: "Gambler's Coil",desc: "+50% score from kills. Hits DROP your multiplier to ×1.", apply: s => { s.bounty *= 1.5; s.hitFactor = 0; } },
 ];
 
-export function modById(id) { return MODS.find(m => m.id === id); }
+export function modById(id) {
+  return MODS.find(m => m.id === id) ?? CLASS_MODS.find(m => m.id === id);
+}
 
 export function computeStats(pilot, modIds) {
   const s = baseStats(pilot);

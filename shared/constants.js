@@ -87,6 +87,8 @@ export const PILOTS = [
   { id: 3, name: "ONYX", color: "#c26bfa", lean: "heavy", ability: "Gravity Well", speed: 0.92, fire: 1.1 },
 ];
 
+export const MAX_PLAYERS = 8; // per lobby
+
 export const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/O/1/I/L
 export const ROOM_CODE_LEN = 6;
 

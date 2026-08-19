@@ -67,7 +67,12 @@ input:focus { border-color: #39f0ff; box-shadow: 0 0 12px rgba(57, 240, 255, 0.3
 .pilot .ab { font-size: 0.68rem; color: #8fa3c8; margin-top: 4px; }
 .pilot.sel { border-color: var(--c, #39f0ff); box-shadow: 0 0 14px color-mix(in srgb, var(--c, #39f0ff) 45%, transparent); }
 
-.roster { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 16px; }
+.roster { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 16px; }
+.grant {
+  border: 1px solid #7a5cff88; border-radius: 8px; background: rgba(122, 92, 255, 0.08);
+  color: #b8a6ff; padding: 8px 12px; margin-bottom: 10px; font-size: 0.85rem;
+}
+.grant b { color: #fff; }
 .roster .slot {
   border: 1px dashed #2c3f66; border-radius: 8px; padding: 8px 12px; color: #66779c;
   display: flex; justify-content: space-between; align-items: center;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MODS, computeStats, baseStats } from "../shared/mods.js";
+import { MODS, CLASS_MODS, classModsFor, modById, computeStats, baseStats, draftOffer } from "../shared/mods.js";
 import { ENEMIES } from "../shared/enemies.js";
 import { EK, PILOTS, WAVE } from "../shared/constants.js";
 import { makeWave } from "../server/waves.js";
@@ -24,6 +24,28 @@ test("the full 40-mod pool exists and every mod applies cleanly", () => {
     m.apply(s);
     for (const k of Object.keys(s)) {
       assert.ok(base.includes(k) || ["dashPenalty", "dashBonus"].includes(k), `${m.id} invented stat "${k}"`);
+    }
+  }
+});
+
+test("class mods: every pilot has a pool, all apply cleanly, drafts never offer them", () => {
+  for (let pilot = 0; pilot < 4; pilot++) {
+    const pool = classModsFor(pilot);
+    assert.ok(pool.length >= 4, `pilot ${pilot} has only ${pool.length} class mods`);
+    for (const m of pool) {
+      assert.equal(m.pilot, pilot);
+      assert.ok(modById(m.id), `${m.id} not resolvable via modById`);
+      const s = computeStats(PILOTS[pilot], [m.id, m.id]); // must stack safely
+      for (const [k, v] of Object.entries(s)) {
+        assert.ok(typeof v !== "number" || Number.isFinite(v), `${m.id} produced non-finite ${k}`);
+      }
+    }
+  }
+  const classIds = new Set(CLASS_MODS.map(m => m.id));
+  assert.equal(classIds.size, CLASS_MODS.length, "duplicate class mod ids");
+  for (let i = 0; i < 200; i++) {
+    for (const id of draftOffer(Math.random, 20)) {
+      assert.ok(!classIds.has(id), "draft offered a class mod — those are grant-only");
     }
   }
 });

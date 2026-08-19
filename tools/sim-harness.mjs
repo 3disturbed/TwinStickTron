@@ -139,7 +139,7 @@ console.log(`sim-harness: ${SIM_MINUTES} simulated minutes per scenario…`);
 const deepKills = runDeep();
 console.log(`  deep-wave smoke (waves 7→25, all bosses): ${deepKills} kills, invariants held`);
 if (deepKills < 30) throw new Error("deep-wave smoke barely killed anything — late-wave combat broken?");
-const results = [runScenario(1), runScenario(4)];
+const results = [runScenario(1), runScenario(4), runScenario(8)];
 for (const r of results) {
   console.log(`  ${r.nPlayers}p: reached wave ${r.maxWave}, ${r.kills} kills, ${r.gameovers} run-ends, avg tick ${r.avgMs}ms`);
   if (r.maxWave < 2) throw new Error(`${r.nPlayers}p scenario never progressed past wave 1`);

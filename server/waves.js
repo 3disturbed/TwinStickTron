@@ -24,10 +24,15 @@ function allowedKinds(wave) {
 
 const BOSSES = { 5: EK.BRUTE_PRIME, 10: EK.HEX_PRIME, 15: EK.FOUNDRY, 20: EK.SHEPHERD, 25: EK.ULTRADARK };
 
+// Beyond a 4-stack, each extra player adds enemies at a gentler slope —
+// keeps 8-player lobbies chaotic but readable (and snapshots bounded).
+function effectivePlayers(n) { return n <= 4 ? n : 4 + (n - 4) * 0.6; }
+
 // Returns { entries: [{t, kind, count}], boss: EK|null }
 export function makeWave(wave, players, rng = Math.random) {
   const isBoss = wave % WAVE.BOSS_EVERY === 0;
-  const budget = Math.round((50 + wave * 35) * (0.65 + 0.35 * players) * (isBoss ? 0.45 : 1));
+  const p = effectivePlayers(players);
+  const budget = Math.round((50 + wave * 35) * (0.65 + 0.35 * p) * (isBoss ? 0.45 : 1));
   const kinds = allowedKinds(wave);
   const entries = [];
   const spread = isBoss ? 50 : 42; // seconds over which the wave trickles in
@@ -47,8 +52,8 @@ export function makeWave(wave, players, rng = Math.random) {
   return { entries, boss };
 }
 
-// Boss HP scales with player count (SDD §2.6)
+// Boss HP scales with player count (SDD §2.6), softened past a 4-stack
 export function bossHp(kind, players) {
   const base = ENEMIES[kind].hp;
-  return Math.round(base * (0.7 + 0.3 * players));
+  return Math.round(base * (0.7 + 0.3 * effectivePlayers(players)));
 }

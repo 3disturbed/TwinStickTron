@@ -9,7 +9,7 @@ import {
 import { stepPlayerMovement, startDash } from "../shared/movement.js";
 import { spawnPattern, PT } from "../shared/patterns.js";
 import { ENEMIES } from "../shared/enemies.js";
-import { computeStats, draftOffer, modById } from "../shared/mods.js";
+import { computeStats, draftOffer, modById, classModsFor } from "../shared/mods.js";
 import { mulberry32 } from "../shared/rng.js";
 import { BTN, PF, EF } from "../shared/protocol.js";
 import { makeWave, bossHp } from "./waves.js";
@@ -129,6 +129,15 @@ export class Sim {
     }
     for (const p of this.players.values()) {
       if (p.state === PS.SPECTATING) continue;
+      // free random pilot-signature upgrade, on top of the draft (stacks)
+      const pool = classModsFor(p.pilot);
+      if (pool.length) {
+        const grant = pool[Math.floor(Math.random() * pool.length)];
+        p.mods.push(grant.id);
+        p.stats = computeStats(PILOTS[p.pilot], p.mods);
+        p.hp = Math.max(1, Math.min(this.hpMax(p), p.hp));
+        this.emit({ t: "class_grant", to: p.id, mod: grant.id, name: grant.name, desc: grant.desc });
+      }
       p.picked = false;
       const offer = draftOffer(Math.random, this.wave);
       this.offers.set(p.id, offer);
@@ -251,6 +260,9 @@ export class Sim {
         p.iframesT = Math.max(p.iframesT, PLAYER.DASH_IFRAMES);
         p.dashDmgT = 1;
         if (p.stats.nova > 0 && combat) this.novaBurst(p);
+        if (p.stats.napalm > 0 && combat) { // EMBER's Napalm Trail class mod
+          this.zones.push({ kind: ZK.FLAME, x: p.x, y: p.y, r: 45, ttl: 2 * p.stats.napalm, owner: p.id });
+        }
         this.emit({ t: "dash", who: p.id });
       }
       stepPlayerMovement(p, { mx: inp.mx, my: inp.my }, p.stats, dt);
@@ -315,28 +327,48 @@ export class Sim {
   }
 
   ability(p) {
-    p.abilCd = PLAYER.ABILITY_CD;
+    const s = p.stats;
+    p.abilCd = Math.max(5, PLAYER.ABILITY_CD - s.abilityCdr);
     const aim = p.aim;
     if (p.pilot === 0) { // VANTA — Blink Volley
-      p.x = clamp(p.x + Math.cos(aim) * 180, WALL_PAD, ARENA_W - WALL_PAD);
-      p.y = clamp(p.y + Math.sin(aim) * 180, WALL_PAD, ARENA_H - WALL_PAD);
+      if (s.blinkNova > 0) { // Echo Blink: detonate the departure point
+        this.zones.push({ kind: ZK.BLAST, x: p.x, y: p.y, r: 100, ttl: 0.25 });
+        for (const e of this.enemies.values()) {
+          if (Math.hypot(e.x - p.x, e.y - p.y) < 100) this.damageEnemy(e, 2 * s.blinkNova, p);
+        }
+      }
+      p.x = clamp(p.x + Math.cos(aim) * 180 * s.blinkDist, WALL_PAD, ARENA_W - WALL_PAD);
+      p.y = clamp(p.y + Math.sin(aim) * 180 * s.blinkDist, WALL_PAD, ARENA_H - WALL_PAD);
       p.iframesT = Math.max(p.iframesT, 0.3);
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2;
+      const shots = 12 + s.blinkShots;
+      for (let i = 0; i < shots; i++) {
+        const a = (i / shots) * Math.PI * 2;
         this.pBullets.push({
           id: this.bid = (this.bid % 65000) + 1,
           x: p.x, y: p.y, vx: Math.cos(a) * 560, vy: Math.sin(a) * 560,
-          dmg: p.stats.dmg, pierce: 0, ricochet: 0, life: 0.8, owner: p.id,
+          dmg: s.dmg, pierce: 0, ricochet: 0, life: 0.8, owner: p.id,
         });
       }
     } else if (p.pilot === 1) { // EMBER — Flame Zone
-      this.zones.push({ kind: ZK.FLAME, x: p.x + Math.cos(aim) * 120, y: p.y + Math.sin(aim) * 120, r: 90, ttl: 4, owner: p.id });
+      this.zones.push({
+        kind: ZK.FLAME, x: p.x + Math.cos(aim) * 120, y: p.y + Math.sin(aim) * 120,
+        r: 90 * s.flameR, ttl: 4 * s.flameDur, owner: p.id,
+      });
     } else if (p.pilot === 2) { // HALO — Aegis Field
-      this.zones.push({ kind: ZK.AEGIS, x: p.x, y: p.y, r: 220, ttl: 6, owner: p.id });
+      const r = 220 * s.aegisR;
+      this.zones.push({ kind: ZK.AEGIS, x: p.x, y: p.y, r, ttl: 6 * s.aegisDur, owner: p.id });
+      if (s.aegisHeal > 0) { // Mending Aegis
+        for (const q of this.players.values()) {
+          if (q.state === PS.ALIVE && Math.hypot(q.x - p.x, q.y - p.y) < r) {
+            q.hp = Math.min(this.hpMax(q), q.hp + s.aegisHeal);
+          }
+        }
+      }
     } else if (p.pilot === 3) { // ONYX — Gravity Well
       this.zones.push({
         kind: ZK.WELL, x: clamp(p.x + Math.cos(aim) * 250, WALL_PAD, ARENA_W - WALL_PAD),
-        y: clamp(p.y + Math.sin(aim) * 250, WALL_PAD, ARENA_H - WALL_PAD), r: 130, ttl: 2.5, owner: p.id,
+        y: clamp(p.y + Math.sin(aim) * 250, WALL_PAD, ARENA_H - WALL_PAD),
+        r: 130 * s.wellR, ttl: 2.5 * s.wellDur, owner: p.id,
       });
     }
     this.emit({ t: "ability", who: p.id, pilot: p.pilot });
@@ -404,7 +436,8 @@ export class Sim {
       if (reviver) {
         p.reviveP += dt * reviver.stats.reviveSpeed / PLAYER.REVIVE_TIME;
         if (p.reviveP >= 1) {
-          const cost = Math.min(this.banked, REVIVE_COST_PER_WAVE * this.wave);
+          const cost = Math.round(Math.min(this.banked,
+            REVIVE_COST_PER_WAVE * this.wave) * reviver.stats.reviveDiscount);
           this.banked -= cost;
           p.state = PS.ALIVE; p.hp = Math.min(2, this.hpMax(p)); p.iframesT = 2; p.reviveP = 0;
           this.emit({ t: "revived", who: p.id, by: reviver.id, cost });
@@ -841,8 +874,9 @@ export class Sim {
       z.ttl -= dt;
       if (z.kind === ZK.FLAME) {
         const owner = this.players.get(z.owner);
+        const dps = 2 * (owner?.stats.flameDps ?? 1);
         for (const e of this.enemies.values()) {
-          if (Math.hypot(e.x - z.x, e.y - z.y) < z.r + e.def.radius) this.damageEnemy(e, 2 * dt, owner);
+          if (Math.hypot(e.x - z.x, e.y - z.y) < z.r + e.def.radius) this.damageEnemy(e, dps * dt, owner);
         }
       } else if (z.kind === ZK.WELL) {
         for (const e of this.enemies.values()) {
@@ -875,8 +909,9 @@ export class Sim {
           this.zones.push({ kind: ZK.BLAST, x: z.x, y: z.y, r: z.r, ttl: 0.25 });
         } else if (z.kind === ZK.WELL) {
           const owner = this.players.get(z.owner);
+          const dmg = 3 + (owner?.stats.wellDmg ?? 0);
           for (const e of this.enemies.values()) {
-            if (Math.hypot(e.x - z.x, e.y - z.y) < z.r) this.damageEnemy(e, 3, owner);
+            if (Math.hypot(e.x - z.x, e.y - z.y) < z.r) this.damageEnemy(e, dmg, owner);
           }
           this.zones.push({ kind: ZK.BLAST, x: z.x, y: z.y, r: z.r, ttl: 0.25 });
         }

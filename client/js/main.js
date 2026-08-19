@@ -210,8 +210,12 @@ net.onEvent = (ev) => {
     case "boss": UI.banner(`⚠ ${ev.name}`, true, 2600); sfx.boss(); break;
     case "enrage": UI.banner("ENRAGED", true, 1500); R.addTrauma(0.4); break;
     case "boss_down": UI.banner("BOSS DOWN — +1 BOMB", false, 2000); break;
+    case "class_grant":
+      sfx.pick();
+      break;
     case "draft_offer":
-      UI.showDraft(ev.offer, world.unbanked, true);
+      UI.showDraft(ev.offer, world.unbanked, true, world.lastGrant);
+      world.lastGrant = null;
       break;
     case "bank":
       sfx.bank();
