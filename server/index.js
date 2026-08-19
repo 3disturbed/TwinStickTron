@@ -40,8 +40,13 @@ app.post("/api/rooms", (req, res) => {
   const hits = (createHits.get(ip) ?? 0) + 1;
   createHits.set(ip, hits);
   if (hits > 10) return res.status(429).json({ error: "slow_down" });
-  const mode = req.body?.mode === "daily" ? "daily" : "run";
-  const dailySeed = mode === "daily" ? db.getDailySeed(todayUTC()) : null;
+  let mode = req.body?.mode === "daily" ? "daily" : "run";
+  let dailySeed = mode === "daily" ? db.getDailySeed(todayUTC()) : null;
+  // challenge rooms: normal scoring, but waves pinned to the challenger's seed
+  if (req.body?.mode === "challenge" && Number.isFinite(Number(req.body.seed))) {
+    mode = "run";
+    dailySeed = Number(req.body.seed) >>> 0;
+  }
   const room = rooms.create({ db, mode, dailySeed });
   if (!room) return res.status(503).json({ error: "server_full" });
   res.json({ code: room.code, mode, joinUrl: `https://ultradark.darksgames.app/j/${room.code}` });
@@ -73,6 +78,9 @@ app.get("/api/health", (_req, res) => res.json({ ok: true, ...rooms.stats() }));
 
 // join links serve the app; the client reads the code from the URL
 app.get("/j/:code", (_req, res) => res.sendFile(path.join(ROOT, "client", "index.html")));
+// challenge links: /c/<base64url payload> — the client decodes and offers
+// a one-click "accept" that plays the challenger's exact waves
+app.get("/c/:blob", (_req, res) => res.sendFile(path.join(ROOT, "client", "index.html")));
 
 app.use("/shared", express.static(path.join(ROOT, "shared")));
 app.use(express.static(path.join(ROOT, "client")));

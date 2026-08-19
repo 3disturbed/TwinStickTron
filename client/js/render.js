@@ -589,6 +589,12 @@ function drawHUD() {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 13px ui-monospace, monospace";
   ctx.fillText(`×${world.mult.toFixed(1)}${world.overdrive ? " OVERDRIVE" : ""}`, pad + mw + 8, 71);
+  // challenge target — the score to beat, live (own line under the bar)
+  if (world.challenge) {
+    const beat = world.banked + world.unbanked > world.challenge.s;
+    ctx.fillStyle = beat ? "#b8ff5e" : "#ff9aa6";
+    ctx.fillText(`⚔ ${world.challenge.n} ${world.challenge.s.toLocaleString("en-US")}${beat ? " ✓ BEATEN" : ""}`, pad, 90);
+  }
   // wave (top right)
   ctx.textAlign = "right";
   ctx.font = "bold 20px ui-monospace, monospace";

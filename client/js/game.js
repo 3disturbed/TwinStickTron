@@ -21,6 +21,7 @@ export const world = {
   lasers: [],                                        // sniper telegraphs & beams
   pickups: [], myCons: [], stasis: 0,                // consumables
   locals: [],  // couch co-op seats beyond P1 (managed by main.js)
+  challenge: null, // {n, s, w, seed} when playing someone's challenge link
   me: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0, alive: true },
   myPilot: 0, myMods: [], myStats: computeStats(PILOTS[0], []),
   myHp: 3, myBombs: 1, myDashCd: 0, myAbilCd: 0, myState: PS.ALIVE,

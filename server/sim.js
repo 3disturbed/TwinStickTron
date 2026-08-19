@@ -41,7 +41,8 @@ export class Sim {
     this.eid = 1;
     this.bid = 1;
     this.offers = new Map();
-    this.dailySeed = null;   // set for Daily Dark rooms — waves become deterministic
+    this.dailySeed = null;   // set for Daily Dark / challenge rooms — waves become deterministic
+    this.runSeed = (Math.random() * 0xffffffff) >>> 0;
     this._wardens = [];
     this.pickups = new Map();
     this.pkid = 1;
@@ -80,6 +81,7 @@ export class Sim {
 
   // ---------- run control ----------
   startRun() {
+    this.runSeed = this.dailySeed ?? ((Math.random() * 0xffffffff) >>> 0);
     this.wave = 0;
     this.mult = 1; this.bestMult = 1; this.sinceKill = 999;
     this.unbanked = 0; this.banked = 0;
@@ -100,8 +102,9 @@ export class Sim {
   }
 
   waveRng(n) {
-    if (this.dailySeed == null) return Math.random;
-    return mulberry32(((this.dailySeed >>> 0) ^ Math.imul(n, 2654435761)) >>> 0);
+    // every run is seeded so any finished run can be re-issued as a
+    // challenge with identical wave recipes; Daily Dark pins the seed
+    return mulberry32(((this.runSeed >>> 0) ^ Math.imul(n, 2654435761)) >>> 0);
   }
 
   startWave(n) {
@@ -240,7 +243,7 @@ export class Sim {
     this.emit({
       t: victory ? "victory" : "gameover",
       score: this.banked, lost, wave: this.wave, bestMult: Math.round(this.bestMult * 10) / 10,
-      roster, daily: this.dailySeed != null,
+      roster, daily: this.dailySeed != null, seed: this.runSeed >>> 0,
     });
   }
 

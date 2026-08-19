@@ -172,8 +172,20 @@ export function seatDraftConfirm(seat) {
   return id;
 }
 
+// ---------- challenge links ----------
+export function showChallengeBanner(ch) {
+  const el = $("challenge-banner");
+  el.innerHTML = `⚔ <b>${escapeHtml(ch.n)}</b> challenges you!<br>` +
+    `<b>${Number(ch.s).toLocaleString("en-US")}</b> points, wave ${ch.w}. ` +
+    `Same waves. One click. Beat it.`;
+  el.classList.remove("hidden");
+  $("btn-accept").classList.remove("hidden");
+  $("btn-solo").classList.add("hidden");
+}
+export function bindChallenge(onAccept) { $("btn-accept").onclick = onAccept; }
+
 // ---------- score ----------
-export function showScore(ev, victory) {
+export function showScore(ev, victory, challenge) {
   $("score-title").textContent = victory ? "🏆 ARENA CLEARED" : "RUN OVER";
   const rows = (ev.roster ?? []).map(r => `<div>${r.name}: ${r.kills} kills</div>`).join("");
   let rankLine = "";
@@ -183,8 +195,15 @@ export function showScore(ev, victory) {
   } else if (ev.mode === "daily" && ev.counted === false) {
     rankLine = `<div class="lost">Daily already attempted today — score not counted</div>`;
   }
+  let challengeLine = "";
+  if (challenge) {
+    const beat = ev.score > challenge.s;
+    challengeLine = beat
+      ? `<div style="color:#b8ff5e">⚔ CHALLENGE BEATEN — ${escapeHtml(challenge.n)}'s ${Number(challenge.s).toLocaleString("en-US")} falls</div>`
+      : `<div class="lost">⚔ ${escapeHtml(challenge.n)}'s ${Number(challenge.s).toLocaleString("en-US")} stands — again?</div>`;
+  }
   $("score-body").innerHTML =
-    `<div class="big">${ev.score.toLocaleString("en-US")}</div>` + rankLine +
+    `<div class="big">${ev.score.toLocaleString("en-US")}</div>` + challengeLine + rankLine +
     (ev.lost > 0 ? `<div class="lost">${ev.lost.toLocaleString("en-US")} unbanked — gone</div>` : "") +
     `<div>Wave ${ev.wave} · best ×${ev.bestMult}</div>` + rows;
   showScreen("screen-score");

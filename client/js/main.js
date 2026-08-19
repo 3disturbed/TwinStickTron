@@ -26,6 +26,54 @@ const saved = JSON.parse(localStorage.getItem("ultradark") ?? "{}");
 world.myPilot = saved.pilot ?? 0;
 UI.initMenu(joinCode, { name: saved.name, pilot: world.myPilot });
 
+// ---------- challenge links (/c/<base64url{n,s,w,x}>) ----------
+let challengeBeaten = false;
+let lastEnd = null; // final gameover/victory event, for building challenge links
+
+const challengeBlob = (location.pathname.match(/^\/c\/([A-Za-z0-9_-]+)/) || [])[1];
+if (challengeBlob) {
+  try {
+    const ch = JSON.parse(atob(challengeBlob.replace(/-/g, "+").replace(/_/g, "/")));
+    if (ch && Number.isFinite(ch.s) && Number.isFinite(ch.x)) {
+      world.challenge = { n: String(ch.n ?? "A RIVAL").slice(0, 12), s: ch.s, w: ch.w | 0, seed: ch.x >>> 0 };
+      UI.showChallengeBanner(world.challenge);
+    }
+  } catch { /* malformed blob → plain menu */ }
+}
+
+UI.bindChallenge(async () => {
+  ensureAudio(); persist();
+  pendingAutoStart = true;
+  UI.menuMessage("Loading the challenger's waves…");
+  try {
+    const r = await createRoom("challenge", { seed: world.challenge.seed });
+    world.code = r.code;
+    world.joinUrl = `${location.origin}/j/${r.code}`;
+    history.replaceState(null, "", `/j/${r.code}`);
+    doConnect(r.code);
+  } catch {
+    UI.menuMessage("Could not start the challenge. Retry?");
+  }
+});
+
+function challengeLink(end) {
+  const payload = { n: UI.getName(), s: end.score, w: end.wave, x: end.seed >>> 0 };
+  const blob = btoa(JSON.stringify(payload)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `${location.origin}/c/${blob}`;
+}
+
+async function shareChallenge() {
+  if (!lastEnd || lastEnd.score <= 0) { UI.toast("Finish a scoring run first."); return; }
+  const url = challengeLink(lastEnd);
+  const text = `⚔ I scored ${lastEnd.score.toLocaleString("en-US")} in UltraDark. Same waves, one click — beat me:`;
+  if (navigator.share) {
+    try { await navigator.share({ title: "UltraDark Challenge", text, url }); return; } catch { /* fallthrough */ }
+  }
+  try { await navigator.clipboard.writeText(`${text} ${url}`); UI.toast("⚔ Challenge link copied — send it!"); }
+  catch { UI.toast(url, 6000); }
+}
+document.getElementById("btn-challenge").onclick = shareChallenge;
+
 // ---------- settings (SDD §2.11), persisted ----------
 Object.assign(settings, JSON.parse(localStorage.getItem("ultradark-settings") ?? "{}"));
 setVolume(settings.volume);
@@ -305,8 +353,14 @@ net.onEvent = (ev) => {
       break;
     }
     case "intermission": break;
-    case "gameover": sfx.over(); UI.showScore(ev, false); break;
-    case "victory": sfx.win(); UI.showScore(ev, true); break;
+    case "gameover":
+      lastEnd = ev; challengeBeaten = false;
+      sfx.over(); UI.showScore(ev, false, world.challenge);
+      break;
+    case "victory":
+      lastEnd = ev; challengeBeaten = false;
+      sfx.win(); UI.showScore(ev, true, world.challenge);
+      break;
     case "roster":
       R.setNames(ev.roster);
       nameCache.clear();
@@ -357,6 +411,14 @@ function frame(now) {
       sfx.shoot();
     }
   } else fireAcc = 0;
+  // live challenge check: the moment the squad's total passes the target
+  if (world.challenge && !challengeBeaten && inGame() &&
+      world.banked + world.unbanked > world.challenge.s) {
+    challengeBeaten = true;
+    UI.banner(`⚔ ${world.challenge.n}'S SCORE FALLS`, false, 2600);
+    sfx.bank();
+    R.gridMilestone();
+  }
   R.draw(dt);
   // intermission UI ticks
   if (world.phase === PHASE.INTERMISSION) {
