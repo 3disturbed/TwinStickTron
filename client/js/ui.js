@@ -121,6 +121,57 @@ export function updateDraftTimer(frac) {
 }
 export function hideDraft() { $("screen-draft").classList.add("hidden"); }
 
+// ---------- couch co-op: extra draft rows, one per local seat ----------
+export function clearDraftLocals() { $("draft-locals").innerHTML = ""; }
+
+// Renders a pad-navigable card row for a couch seat. Selection moves with
+// the seat's d-pad, A confirms (wired from main.js via draftNav/draftConfirm).
+export function addDraftRow(seat, pilotDef) {
+  const wrap = document.createElement("div");
+  wrap.className = "draft-seat";
+  const grantLine = seat.grant
+    ? `<div class="grant small">✦ ${seat.grant.name}: ${seat.grant.desc}</div>` : "";
+  wrap.innerHTML =
+    `<div class="seat-label" style="color:${pilotDef.color}">${pilotDef.symbol} ${seat.name} — 🎮 d-pad + Ⓐ</div>` + grantLine;
+  const row = document.createElement("div");
+  row.className = "cards";
+  seat.cardEls = [];
+  seat.sel = 0;
+  seat.pickedUi = false;
+  for (const id of seat.offer) {
+    const m = modById(id);
+    if (!m) continue;
+    const el = document.createElement("div");
+    el.className = "card" + (m.rarity >= 2 ? " r2" : "") + (m.cursed ? " cursed" : "");
+    el.innerHTML = `<div class="fam">${m.cursed ? "⚠ CURSED · " : ""}${m.family.toUpperCase()}</div><div class="nm">${m.name}</div><div class="ds">${m.desc}</div>`;
+    seat.cardEls.push({ el, id });
+    row.appendChild(el);
+  }
+  wrap.appendChild(row);
+  $("draft-locals").appendChild(wrap);
+  drawSeatSel(seat);
+}
+
+export function drawSeatSel(seat) {
+  seat.cardEls?.forEach(({ el }, i) => el.classList.toggle("sel", i === seat.sel && !seat.pickedUi));
+}
+
+export function seatDraftMove(seat, dir) {
+  if (!seat.cardEls?.length || seat.pickedUi) return;
+  seat.sel = (seat.sel + dir + seat.cardEls.length) % seat.cardEls.length;
+  drawSeatSel(seat);
+}
+
+export function seatDraftConfirm(seat) {
+  if (!seat.cardEls?.length || seat.pickedUi) return null;
+  const { el, id } = seat.cardEls[seat.sel];
+  seat.pickedUi = true;
+  seat.cardEls.forEach(({ el: e }) => { e.style.opacity = 0.4; e.classList.remove("sel"); });
+  el.style.opacity = 1;
+  el.classList.add("picked");
+  return id;
+}
+
 // ---------- score ----------
 export function showScore(ev, victory) {
   $("score-title").textContent = victory ? "🏆 ARENA CLEARED" : "RUN OVER";

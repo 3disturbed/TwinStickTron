@@ -1,14 +1,15 @@
 // UltraDark client bootstrap: screens flow, the render loop, the 30 Hz
 // input pump, and the event → juice wiring.
 
-import { PHASE, PS, PLAYER, WAVE, PILOTS } from "/shared/constants.js";
+import { PHASE, PS, PLAYER, WAVE, PILOTS, ARENA_W, ARENA_H } from "/shared/constants.js";
 import { ENEMIES } from "/shared/enemies.js";
 import { CONSUMABLES, CK } from "/shared/consumables.js";
+import { computeStats } from "/shared/mods.js";
 import { BTN } from "/shared/protocol.js";
-import { net, createRoom, connect, sendInput, sendAction } from "./net.js";
+import { net, createRoom, connect, sendInput, sendAction, connectExtra } from "./net.js";
 import { world, onSnapshot, handleEvent, resetForRun, inGame } from "./game.js";
 import * as game from "./game.js";
-import { initInput, pollInput } from "./input.js";
+import { initInput, pollInput, detectPadJoin, pollPad, pollPadNav, claimPad, releasePad } from "./input.js";
 import * as R from "./render.js";
 import { settings } from "./render.js";
 import * as UI from "./ui.js";
@@ -101,7 +102,15 @@ UI.ui.onAction = async (a) => {
     UI.invite(world.joinUrl, world.code);
   } else if (a.t === "start" || a.t === "again" || a.t === "bank") {
     sendAction({ t: a.t });
-    if (a.t === "again") { resetForRun(); UI.hideScreens(); }
+    if (a.t === "again") {
+      resetForRun();
+      UI.clearDraftLocals();
+      for (const seat of world.locals) {
+        seat.mods = []; seat.stats = computeStats(PILOTS[seat.pilot], []);
+        seat.offer = null; seat.grant = null; seat.pickedUi = false;
+      }
+      UI.hideScreens();
+    }
   } else if (a.t === "pick") {
     sendAction(a);
     sfx.pick();
@@ -114,6 +123,51 @@ function persist() {
 
 function doConnect(code) {
   connect(code, { name: UI.getName(), pilot: world.myPilot, resumeKey: world.resumeKey || undefined });
+}
+
+// ---------- couch co-op: extra local seats, one socket per player ----------
+const MAX_LOCAL = 4; // P1 + 3 pads on one screen
+
+function addLocalPlayer(padIndex) {
+  if (!net.connected) { UI.toast("🎮 Join a lobby first, then press START to add players."); return; }
+  if (1 + world.locals.length >= MAX_LOCAL) { UI.toast("🎮 Couch is full (4 on this screen)."); return; }
+  const n = world.locals.length + 2;
+  const seat = {
+    id: 0, padIndex, name: `${UI.getName().slice(0, 8)}·${n}`,
+    pilot: (world.myPilot + n - 1) % 4,
+    pred: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0 },
+    mods: [], stats: null, lastInput: null, seq: 0, dashPrev: false,
+    offer: null, grant: null, hud: null, conn: null,
+  };
+  seat.stats = computeStats(PILOTS[seat.pilot], []);
+  claimPad(padIndex, seat);
+  seat.conn = connectExtra(world.code, { name: seat.name, pilot: seat.pilot }, {
+    onWelcome(w) {
+      seat.id = w.id;
+      world.locals.push(seat);
+      const pilot = PILOTS[seat.pilot];
+      UI.toast(`🎮 ${pilot.symbol} ${seat.name} joined on controller ${padIndex + 1}${w.spectating ? " — drops in next wave" : ""}`, 3200);
+      sfx.pick();
+    },
+    onEvent(ev) {
+      if (ev.t === "draft_offer") {
+        seat.offer = ev.offer;
+        UI.addDraftRow(seat, PILOTS[seat.pilot]);
+      } else if (ev.t === "class_grant") {
+        seat.mods.push(ev.mod);
+        seat.stats = computeStats(PILOTS[seat.pilot], seat.mods);
+        seat.grant = ev;
+      } else if (ev.t === "error") {
+        UI.toast(ev.error === "room_full" ? "Room is full (8 max)." : "Could not join this room.");
+      }
+    },
+    onClose() {
+      const i = world.locals.indexOf(seat);
+      if (i >= 0) world.locals.splice(i, 1);
+      releasePad(padIndex);
+      if (net.connected) UI.toast(`🎮 ${seat.name} left`);
+    },
+  });
 }
 
 // ---------- net wiring ----------
@@ -204,6 +258,8 @@ net.onEvent = (ev) => {
     case "out": UI.banner(`${nameOf(ev.who)} IS OUT`, true); break;
     case "wave_start":
       UI.hideScreens();
+      UI.clearDraftLocals();
+      for (const seat of world.locals) { seat.offer = null; seat.grant = null; seat.pickedUi = false; }
       UI.banner(`WAVE ${ev.wave}`, false, 1600);
       sfx.wave();
       break;
@@ -239,7 +295,15 @@ net.onEvent = (ev) => {
       UI.toast(`🏦 BANKED ${ev.amount.toLocaleString("en-US")}`);
       UI.updateBank(0, false);
       break;
-    case "picked": break; // game.handleEvent updated stats
+    case "picked": {
+      // keep couch seats' prediction stats in sync with their drafts
+      const seat = world.locals.find(l => l.id === ev.who);
+      if (seat && !seat.mods.includes(ev.mod)) {
+        seat.mods.push(ev.mod);
+        seat.stats = computeStats(PILOTS[seat.pilot], seat.mods);
+      }
+      break;
+    }
     case "intermission": break;
     case "gameover": sfx.over(); UI.showScore(ev, false); break;
     case "victory": sfx.win(); UI.showScore(ev, true); break;
@@ -267,6 +331,22 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   lastInput = pollInput();
+  // couch co-op: unclaimed pad pressing START joins the room
+  const joinPad = detectPadJoin();
+  if (joinPad != null) addLocalPlayer(joinPad);
+  // per-seat pad input + draft navigation
+  for (const seat of world.locals) {
+    seat.lastInput = pollPad(seat.padIndex);
+    if (world.phase === PHASE.INTERMISSION && seat.offer && !seat.pickedUi) {
+      const nav = pollPadNav(seat.padIndex);
+      if (nav.left) UI.seatDraftMove(seat, -1);
+      if (nav.right) UI.seatDraftMove(seat, 1);
+      if (nav.confirm) {
+        const id = UI.seatDraftConfirm(seat);
+        if (id) { seat.conn.sendAction({ t: "pick", id }); sfx.pick(); }
+      }
+    }
+  }
   if (!R.isHitstopped()) game.frame(dt, lastInput);
   // local muzzle feel: flash at predicted cadence while firing
   if ((lastInput.buttons & BTN.FIRE) && world.myState === PS.ALIVE && world.phase === PHASE.WAVE) {
@@ -291,6 +371,12 @@ setInterval(() => {
   if (net.connected && world.myId) {
     seq = (seq + 1) % 65536;
     sendInput(seq, lastInput);
+  }
+  for (const seat of world.locals) {
+    if (seat.id && seat.lastInput && seat.conn.ws.readyState === 1) {
+      seat.seq = (seat.seq + 1) % 65536;
+      seat.conn.sendInput(seat.seq, seat.lastInput);
+    }
   }
 }, 1000 / 30);
 

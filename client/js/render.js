@@ -440,12 +440,15 @@ function shapePath(shape, x, y, r, t) {
 }
 
 function drawPlayers() {
+  const localPred = new Map();
+  for (const seat of world.locals) if (seat.id) localPred.set(seat.id, seat.pred);
   for (const p of world.players) {
     const pilot = PILOTS[p.pilot] ?? PILOTS[0];
     const mine = p.id === world.myId;
-    const x = mine ? world.me.x : p.x;
-    const y = mine ? world.me.y : p.y;
-    const aim = mine ? world.me.aim : p.aim;
+    const pred = mine ? world.me : localPred.get(p.id);
+    const x = pred ? pred.x : p.x;
+    const y = pred ? pred.y : p.y;
+    const aim = pred ? pred.aim : p.aim;
 
     if (p.state === PS.SPECTATING) continue;
     if (p.state === PS.OUT) continue;
@@ -600,6 +603,28 @@ function drawHUD() {
   for (let i = 0; i < pips; i++) {
     ctx.fillStyle = i < world.myHp ? "#ff5b6e" : "rgba(255,255,255,0.15)";
     ctx.fillRect(pad + i * 26, H - 30, 20, 14);
+  }
+  // couch co-op seat rows (above P1's hp pips, colour-coded per pilot)
+  let couchY = H - 54;
+  for (const seat of world.locals) {
+    if (!seat.id || !seat.hud) continue;
+    const pilot = PILOTS[seat.pilot] ?? PILOTS[0];
+    ctx.textAlign = "left";
+    ctx.font = "bold 13px ui-monospace, monospace";
+    ctx.fillStyle = pilot.color;
+    ctx.fillText(`${pilot.symbol} ${seat.name}`, pad, couchY);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i < seat.hud.hp ? "#ff5b6e" : "rgba(255,255,255,0.15)";
+      ctx.fillRect(pad + 110 + i * 16, couchY - 10, 12, 10);
+    }
+    ctx.fillStyle = "#fff";
+    ctx.font = "12px ui-monospace, monospace";
+    let extras = `💣${seat.hud.bombs}`;
+    if (seat.hud.cons?.length) extras += "  " + seat.hud.cons.map(k => CONSUMABLES[k]?.glyph ?? "?").join(" ");
+    if (seat.hud.state === PS.DOWNED) extras = "⬇ DOWNED";
+    if (seat.hud.state === PS.SPECTATING) extras = "…next wave";
+    ctx.fillText(extras, pad + 170, couchY);
+    couchY -= 22;
   }
   // consumable slots (bottom centre) — F / gamepad X / touch ✚ to use
   const cons = world.myCons ?? [];

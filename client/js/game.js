@@ -20,6 +20,7 @@ export const world = {
   eBullets: [],                                      // client-simmed pattern bullets
   lasers: [],                                        // sniper telegraphs & beams
   pickups: [], myCons: [], stasis: 0,                // consumables
+  locals: [],  // couch co-op seats beyond P1 (managed by main.js)
   me: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0, alive: true },
   myPilot: 0, myMods: [], myStats: computeStats(PILOTS[0], []),
   myHp: 3, myBombs: 1, myDashCd: 0, myAbilCd: 0, myState: PS.ALIVE,
@@ -63,6 +64,21 @@ export function onSnapshot(s) {
       world.me.y += (meS.y - world.me.y) * 0.18;
     }
   }
+
+  // reconcile couch seats the same way
+  for (const seat of world.locals) {
+    if (!seat.id) continue;
+    const sS = s.players.find(p => p.id === seat.id);
+    if (!sS) continue;
+    seat.hud = { hp: sS.hp, bombs: sS.bombs, cons: (sS.cons ?? []).filter(Boolean), dashCd: sS.dashCd, abilCd: sS.abilCd, state: sS.state };
+    const err = Math.hypot(sS.x - seat.pred.x, sS.y - seat.pred.y);
+    if (err > 64 || sS.state !== PS.ALIVE) {
+      seat.pred.x = sS.x; seat.pred.y = sS.y; seat.pred.vx = 0; seat.pred.vy = 0;
+    } else {
+      seat.pred.x += (sS.x - seat.pred.x) * 0.18;
+      seat.pred.y += (sS.y - seat.pred.y) * 0.18;
+    }
+  }
 }
 
 // Called every render frame: advance prediction + local bullets, produce
@@ -77,6 +93,20 @@ export function frame(dt, input) {
     }
     world.dashPressedPrev = dashPressed;
     stepPlayerMovement(world.me, { mx: input.mx, my: input.my }, world.myStats, dt);
+  }
+
+  // --- couch seat prediction (input polled by main.js into seat.lastInput) ---
+  for (const seat of world.locals) {
+    if (!seat.id || seat.hud?.state !== PS.ALIVE) continue;
+    const inp = seat.lastInput;
+    if (!inp) continue;
+    if (Math.hypot(inp.ax, inp.ay) > 0.25) seat.pred.aim = Math.atan2(inp.ay, inp.ax);
+    const dashP = !!(inp.buttons & BTN.DASH);
+    if (dashP && !seat.dashPrev && (seat.hud?.dashCd ?? 1) <= 0.05 && seat.pred.dashT <= 0) {
+      startDash(seat.pred, { mx: inp.mx, my: inp.my });
+    }
+    seat.dashPrev = dashP;
+    stepPlayerMovement(seat.pred, { mx: inp.mx, my: inp.my }, seat.stats, dt);
   }
 
   // --- lasers expire ---
@@ -96,21 +126,24 @@ export function frame(dt, input) {
   if (!curr) return;
   const prev = world.prevSnap;
   const alpha = prev ? clamp((performance.now() - world.currAt) / SNAP_MS, 0, 1) : 1;
-  world.players = lerpById(prev?.players, curr.players, alpha, world.myId);
+  // local (predicted) ships skip interpolation — theirs is the predicted pos
+  world._localIds = new Set([world.myId, ...world.locals.map(l => l.id)]);
+  world.players = lerpById(prev?.players, curr.players, alpha, world._localIds);
   world.enemies = lerpById(prev?.enemies, curr.enemies, alpha, -1);
   world.bullets = lerpById(prev?.bullets, curr.bullets, alpha, -1);
   world.zones = curr.zones;
 }
 
-function lerpById(prevArr, currArr, a, skipId) {
+function lerpById(prevArr, currArr, a, skip) {
   if (!prevArr) return currArr;
+  const skipSet = skip instanceof Set ? skip : new Set([skip]);
   const prevMap = new Map();
   for (const e of prevArr) prevMap.set(e.id, e);
   const out = new Array(currArr.length);
   for (let i = 0; i < currArr.length; i++) {
     const c = currArr[i];
     const p = prevMap.get(c.id);
-    if (!p || c.id === skipId) { out[i] = c; continue; }
+    if (!p || skipSet.has(c.id)) { out[i] = c; continue; }
     out[i] = { ...c, x: p.x + (c.x - p.x) * a, y: p.y + (c.y - p.y) * a };
   }
   return out;

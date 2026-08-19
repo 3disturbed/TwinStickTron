@@ -132,6 +132,13 @@ input:focus { border-color: #39f0ff; box-shadow: 0 0 12px rgba(57, 240, 255, 0.3
 #tbtn-use { right: calc(6vw + 130px); bottom: calc(26vh + 70px); }
 
 .btn.small { padding: 8px 14px; font-size: 0.85rem; }
+
+/* couch co-op */
+.draft-seat { border-top: 1px solid #1a1440; margin-top: 10px; padding-top: 8px; }
+.seat-label { font-size: 0.8rem; letter-spacing: 0.08em; text-align: left; margin-bottom: 6px; }
+.card.sel { outline: 2px solid #ffe45b; transform: translateY(-3px); box-shadow: 0 0 18px rgba(255, 228, 91, 0.4); }
+.grant.small { font-size: 0.75rem; color: #b8a6ff; text-align: left; margin-bottom: 6px; }
+.couch-hint { color: #66779c; font-size: 0.8rem; margin-top: 10px; }
 .btn.daily { border-color: #7a5cff88; color: #b8a6ff; }
 .btn.daily:hover { box-shadow: 0 0 16px rgba(122, 92, 255, 0.4); }
 .lb-tab.active { border-color: #ffe45b; color: #ffe45b; }

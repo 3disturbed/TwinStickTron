@@ -35,7 +35,8 @@
         <button id="btn-settings" class="btn">⚙</button>
       </div>
       <p id="menu-msg" class="dim"></p>
-      <p class="dim tiny">WASD move · mouse aim &amp; fire · SPACE dash · E bomb · Q ability · gamepad &amp; touch supported</p>
+      <p class="dim tiny">WASD move · mouse aim &amp; fire · SPACE dash · E bomb · Q ability · F use item · gamepad &amp; touch supported</p>
+      <p class="dim tiny">🎮 couch co-op: in a lobby, press START on extra controllers — up to 4 on one screen</p>
     </section>
 
     <!-- LOBBY -->
@@ -49,11 +50,13 @@
         <button id="btn-start" class="btn primary big">▶ START RUN</button>
       </div>
       <p class="dim">Friends open the link and drop straight in. 1–8 players.</p>
+      <p class="couch-hint">🎮 COUCH CO-OP — press START on a controller to add a local player</p>
     </section>
 
     <!-- DRAFT (intermission) -->
     <section id="screen-draft" class="screen hidden compact">
       <h3 id="draft-title">WAVE CLEAR — DRAFT AN UPGRADE</h3>
+      <div id="draft-locals"></div>
       <p id="class-grant" class="grant hidden"></p>
       <div id="draft-cards" class="cards"></div>
       <div class="row buttons">

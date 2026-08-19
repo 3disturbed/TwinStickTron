@@ -89,6 +89,63 @@ export function initInput(canvas) {
 // double-tap-ish dash on touch: quick full deflection after neutral
 let lastLMag = 0, dashTapT = 0;
 
+// ---------- couch co-op pad management ----------
+// Pads are CLAIMED: the first active pad belongs to P1 (merged with
+// keyboard/mouse, as ever). Any *unclaimed* pad pressing START becomes a
+// new local player. main.js polls detectPadJoin() each frame.
+const padClaims = new Map(); // padIndex -> "p1" | seat object marker
+const padStartPrev = new Map();
+
+export function claimPad(index, owner) { padClaims.set(index, owner); }
+export function releasePad(index) { padClaims.delete(index); }
+
+function livePads() {
+  return [...(navigator.getGamepads?.() ?? [])].filter(gp => gp && gp.connected);
+}
+
+export function detectPadJoin() {
+  for (const gp of livePads()) {
+    const start = !!gp.buttons[9]?.pressed;
+    const prev = padStartPrev.get(gp.index) ?? false;
+    padStartPrev.set(gp.index, start);
+    if (start && !prev && !padClaims.has(gp.index)) return gp.index;
+  }
+  return null;
+}
+
+// Read ONE pad as a full input state (a couch seat's whole controller)
+export function pollPad(index) {
+  let mx = 0, my = 0, ax = 1, ay = 0, buttons = 0;
+  const gp = navigator.getGamepads?.()[index];
+  if (gp && gp.connected) {
+    const [lx, ly, rx, ry] = gp.axes;
+    if (Math.hypot(lx, ly) > 0.18) { mx = lx; my = ly; }
+    if (Math.hypot(rx ?? 0, ry ?? 0) > 0.35) { ax = rx; ay = ry; buttons |= BTN.FIRE; }
+    if (gp.buttons[5]?.pressed || gp.buttons[10]?.pressed) buttons |= BTN.DASH; // RB / L3
+    if (gp.buttons[4]?.pressed) buttons |= BTN.BOMB;                            // LB
+    if (gp.buttons[7]?.pressed || gp.buttons[0]?.pressed) buttons |= BTN.ABILITY; // RT / A
+    if (gp.buttons[2]?.pressed) buttons |= BTN.USE;                             // X — consumable
+  }
+  return { mx, my, ax, ay, buttons };
+}
+
+// D-pad/A edges for menu (draft) navigation by a couch seat's pad
+const padNavPrev = new Map();
+export function pollPadNav(index) {
+  const gp = navigator.getGamepads?.()[index];
+  const cur = {
+    left: !!gp?.buttons[14]?.pressed, right: !!gp?.buttons[15]?.pressed,
+    confirm: !!gp?.buttons[0]?.pressed,
+  };
+  const prev = padNavPrev.get(index) ?? { left: false, right: false, confirm: false };
+  padNavPrev.set(index, cur);
+  return {
+    left: cur.left && !prev.left,
+    right: cur.right && !prev.right,
+    confirm: cur.confirm && !prev.confirm,
+  };
+}
+
 export function pollInput() {
   let mx = 0, my = 0, ax = 0, ay = 0, buttons = 0;
 
@@ -111,17 +168,22 @@ export function pollInput() {
     ax = dx / len; ay = dy / len;
   }
 
-  // gamepad overrides/merges
-  const pads = navigator.getGamepads?.() ?? [];
-  for (const gp of pads) {
-    if (!gp || !gp.connected) continue;
-    const [lx, ly, rx, ry] = gp.axes;
-    if (Math.hypot(lx, ly) > 0.18) { mx = lx; my = ly; }
-    if (Math.hypot(rx ?? 0, ry ?? 0) > 0.35) { ax = rx; ay = ry; buttons |= BTN.FIRE; }
-    if (gp.buttons[5]?.pressed || gp.buttons[10]?.pressed) buttons |= BTN.DASH; // RB / L3
-    if (gp.buttons[4]?.pressed) buttons |= BTN.BOMB;                            // LB
-    if (gp.buttons[7]?.pressed || gp.buttons[0]?.pressed) buttons |= BTN.ABILITY; // RT / A
-    if (gp.buttons[2]?.pressed) buttons |= BTN.USE;                             // X — consumable
+  // P1's own pad (first active unclaimed pad claims to P1; claimed-by-seat
+  // pads are strictly hands-off)
+  for (const gp of livePads()) {
+    const owner = padClaims.get(gp.index);
+    if (owner !== undefined && owner !== "p1") continue;
+    if (owner === undefined) {
+      const [lx, ly, rx, ry] = gp.axes;
+      const active = Math.hypot(lx, ly) > 0.18 || Math.hypot(rx ?? 0, ry ?? 0) > 0.35 ||
+        gp.buttons.some(b => b.pressed);
+      if (!active || [...padClaims.values()].includes("p1")) continue;
+      padClaims.set(gp.index, "p1");
+    }
+    const p = pollPad(gp.index);
+    if (Math.hypot(p.mx, p.my) > 0.18) { mx = p.mx; my = p.my; }
+    if (p.buttons & BTN.FIRE) { ax = p.ax; ay = p.ay; }
+    buttons |= p.buttons;
     break;
   }
 
