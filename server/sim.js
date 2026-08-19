@@ -4,8 +4,9 @@
 
 import {
   ARENA_W, ARENA_H, WALL_PAD, PLAYER, MULT, WAVE, PHASE, PS, EK, ZK,
-  PILOTS, REVIVE_COST_PER_WAVE, TICK_DT, clamp,
+  PILOTS, REVIVE_COST_PER_WAVE, TICK_DT, ORBITAL, PICKUP, clamp,
 } from "../shared/constants.js";
+import { CK, rollConsumable } from "../shared/consumables.js";
 import { stepPlayerMovement, startDash } from "../shared/movement.js";
 import { spawnPattern, PT } from "../shared/patterns.js";
 import { ENEMIES } from "../shared/enemies.js";
@@ -42,6 +43,10 @@ export class Sim {
     this.offers = new Map();
     this.dailySeed = null;   // set for Daily Dark rooms — waves become deterministic
     this._wardens = [];
+    this.pickups = new Map();
+    this.pkid = 1;
+    this.stasisT = 0;
+    this.rngDrop = Math.random; // injectable for tests
   }
 
   hpMax(p) { return Math.max(1, PLAYER.MAX_HP + (p.stats.maxHp | 0)); }
@@ -57,6 +62,7 @@ export class Sim {
       iframesT: 0, bombs: PLAYER.START_BOMBS, lives: PLAYER.SOLO_LIVES,
       downedT: 0, reviveP: 0, respawnT: 0, beingRevived: false,
       dashDmgT: 0, rageT: 0, staticT: 2.2, lastCause: "",
+      cons: [], frenzyT: 0,
       buttonsPrev: 0, input: { seq: 0, mx: 0, my: 0, ax: 0, ay: 0, buttons: 0 },
       kills: 0, picked: true,
     };
@@ -79,6 +85,7 @@ export class Sim {
     this.unbanked = 0; this.banked = 0;
     this.enemies.clear(); this.pBullets.length = 0; this.eBullets.length = 0;
     this.zones.length = 0; this.pending.length = 0;
+    this.pickups.clear(); this.stasisT = 0;
     let i = 0;
     for (const p of this.players.values()) {
       p.state = PS.ALIVE; p.mods = [];
@@ -87,7 +94,7 @@ export class Sim {
       p.bombs = PLAYER.START_BOMBS; p.lives = PLAYER.SOLO_LIVES; p.kills = 0;
       p.x = ARENA_W / 2 + (i++ - this.players.size / 2) * 70; p.y = ARENA_H / 2;
       p.vx = p.vy = 0; p.dashCd = 0; p.dashStock = p.stats.dashCharges; p.abilCd = 0; p.iframesT = 2;
-      p.dashDmgT = 0; p.rageT = 0;
+      p.dashDmgT = 0; p.rageT = 0; p.cons = []; p.frenzyT = 0;
     }
     this.startWave(1);
   }
@@ -185,6 +192,7 @@ export class Sim {
     if (this.phase === PHASE.INTERMISSION) {
       this.stepPlayers(dt, false);
       this.stepZones(dt);
+      this.stepPickups(dt); // leftovers stay collectable between waves
       this.phaseT -= dt;
       if (this.phaseT <= 0) {
         for (const p of this.players.values()) {
@@ -199,6 +207,7 @@ export class Sim {
       return;
     }
     // PHASE.WAVE
+    this.stasisT = Math.max(0, this.stasisT - dt);
     this.stepPlayers(dt, true);
     this.stepSpawner(dt);
     this.stepEnemies(dt);
@@ -206,6 +215,7 @@ export class Sim {
     this.stepPlayerBullets(dt);
     this.stepOrbitals(dt);
     this.stepZones(dt);
+    this.stepPickups(dt);
     this.stepReviveAndRespawn(dt);
     this.sinceKill += dt;
     if (this.sinceKill > MULT.DECAY_GRACE && this.mult > 1) {
@@ -271,10 +281,17 @@ export class Sim {
       p.abilCd = Math.max(0, p.abilCd - dt);
       p.dashDmgT = Math.max(0, p.dashDmgT - dt);
       p.rageT = Math.max(0, p.rageT - dt);
+      p.frenzyT = Math.max(0, p.frenzyT - dt);
       if ((btn & BTN.FIRE) && p.fireCd <= 0) {
         this.fire(p);
-        const rate = p.stats.fire * (p.rageT > 0 ? 1 + 0.5 * p.stats.rage : 1);
+        const rate = p.stats.fire * (p.rageT > 0 ? 1 + 0.5 * p.stats.rage : 1) * (p.frenzyT > 0 ? 2 : 1);
         p.fireCd = PLAYER.FIRE_CD / rate;
+      }
+      // use consumable (edge) — works in intermission too, hence outside combat
+      if ((btn & BTN.USE) && !(prev & BTN.USE) && p.cons.length > 0) {
+        const kind = p.cons.shift();
+        this.applyConsumable(p, kind);
+        this.emit({ t: "consumed", who: p.id, kind });
       }
       if (combat) {
         if ((btn & BTN.BOMB) && !(prev & BTN.BOMB) && p.bombs > 0) this.smartBomb(p);
@@ -372,6 +389,46 @@ export class Sim {
       });
     }
     this.emit({ t: "ability", who: p.id, pilot: p.pilot });
+  }
+
+  // ---------- consumables ----------
+  applyConsumable(p, kind) {
+    if (kind === CK.REPAIR) p.hp = Math.min(this.hpMax(p), p.hp + 1);
+    else if (kind === CK.SHIELD) p.iframesT = Math.max(p.iframesT, 3);
+    else if (kind === CK.FRENZY) p.frenzyT = 6;
+    else if (kind === CK.STASIS) this.stasisT = Math.max(this.stasisT, 5);
+    else if (kind === CK.BOMB) p.bombs = Math.min(PLAYER.MAX_BOMBS, p.bombs + 1);
+  }
+
+  spawnPickup(kind, x, y) {
+    if (this.pickups.size >= PICKUP.MAX_LIVE) {
+      const oldest = this.pickups.keys().next().value;
+      this.pickups.delete(oldest);
+    }
+    const id = this.pkid = (this.pkid % 65000) + 1;
+    this.pickups.set(id, {
+      id, kind,
+      x: clamp(x, WALL_PAD, ARENA_W - WALL_PAD),
+      y: clamp(y, WALL_PAD, ARENA_H - WALL_PAD),
+      ttl: PICKUP.TTL,
+    });
+  }
+
+  stepPickups(dt) {
+    for (const [id, k] of this.pickups) {
+      k.ttl -= dt;
+      if (k.ttl <= 0) { this.pickups.delete(id); continue; }
+      for (const p of this.players.values()) {
+        if (p.state !== PS.ALIVE) continue;
+        if (p.cons.length >= PICKUP.MAX_CARRY) continue; // full — leave it for a teammate
+        if (Math.hypot(p.x - k.x, p.y - k.y) < PLAYER.RADIUS + PICKUP.RADIUS) {
+          p.cons.push(k.kind);
+          this.pickups.delete(id);
+          this.emit({ t: "pickup_got", who: p.id, kind: k.kind });
+          break;
+        }
+      }
+    }
   }
 
   novaBurst(p) {
@@ -535,6 +592,7 @@ export class Sim {
     this._wardens.length = 0;
     for (const e of this.enemies.values()) if (e.def.ai === "warden") this._wardens.push(e);
 
+    const slow = this.stasisT > 0 ? 0.45 : 1; // Stasis Charge consumable
     for (const e of this.enemies.values()) {
       e.t += dt;
       e.contactCd = Math.max(0, e.contactCd - dt);
@@ -656,13 +714,13 @@ export class Sim {
         if (Math.floor(e.t / 7) > Math.floor((e.t - dt) / 7)) this.spawnAtEdge(EK.GHOST);
       }
 
-      e.x = clamp(e.x + e.vx * dt, WALL_PAD, ARENA_W - WALL_PAD);
-      e.y = clamp(e.y + e.vy * dt, WALL_PAD, ARENA_H - WALL_PAD);
+      e.x = clamp(e.x + e.vx * slow * dt, WALL_PAD, ARENA_W - WALL_PAD);
+      e.y = clamp(e.y + e.vy * slow * dt, WALL_PAD, ARENA_H - WALL_PAD);
 
       // sniper aim/fire cycle (outside movement so freezing works)
       if (ai === "sniper" && target) {
         if (!e.aiming) {
-          e.fireT -= dt;
+          e.fireT -= dt * slow;
           if (e.fireT <= 0) {
             e.aiming = true; e.aimT = def.aimTime;
             e.lockX = target.x; e.lockY = target.y;
@@ -679,7 +737,7 @@ export class Sim {
 
       // generic pattern firing
       if (def.fireEvery && target && ai !== "sniper" && ai !== "ghost") {
-        e.fireT -= dt;
+        e.fireT -= dt * slow;
         if (e.fireT <= 0) {
           e.fireT = def.fireEvery * (e.enraged ? 0.55 : 1);
           const aimA = Math.atan2(target.y - e.y, target.x - e.x);
@@ -839,6 +897,9 @@ export class Sim {
       }
     }
     this.emit({ t: "kill", kind: e.kind, x: Math.round(e.x), y: Math.round(e.y), points, who: killer?.id ?? 0 });
+    if (def.dropChance && this.rngDrop() < def.dropChance) {
+      this.spawnPickup(rollConsumable(this.rngDrop), e.x, e.y);
+    }
     if (def.onDeath?.pattern) this.emitPattern(PATTERN_IDS[def.onDeath.pattern], e.x, e.y, 0, def.name);
     if (def.onDeath?.split) {
       for (let i = 0; i < def.onDeath.count; i++) {
@@ -859,10 +920,13 @@ export class Sim {
       if (p.state !== PS.ALIVE || p.stats.orbitals <= 0) continue;
       const k = p.stats.orbitals;
       for (let i = 0; i < k; i++) {
-        const a = this.tick * TICK_DT * 3 + (i / k) * Math.PI * 2;
-        const ox = p.x + Math.cos(a) * 60, oy = p.y + Math.sin(a) * 60;
+        // client renders blades from the same tick-based formula (ORBITAL const)
+        const a = this.tick * TICK_DT * ORBITAL.ROT + (i / k) * Math.PI * 2;
+        const ox = p.x + Math.cos(a) * ORBITAL.R, oy = p.y + Math.sin(a) * ORBITAL.R;
         for (const e of this.enemies.values()) {
-          if (Math.hypot(e.x - ox, e.y - oy) < e.def.radius + 14) this.damageEnemy(e, 2.5 * dt, p);
+          if (Math.hypot(e.x - ox, e.y - oy) < e.def.radius + ORBITAL.BLADE) {
+            this.damageEnemy(e, ORBITAL.DPS * dt, p);
+          }
         }
       }
     }
@@ -935,6 +999,8 @@ export class Sim {
         id: p.id, pilot: p.pilot, state: p.state, x: p.x, y: p.y, aim: p.aim,
         hp: Math.max(0, p.hp), dashCd: p.dashStock > 0 ? 0 : p.dashCd, abilCd: Math.ceil(p.abilCd),
         bombs: p.bombs, flags,
+        orbitals: Math.min(255, p.stats.orbitals | 0),
+        cons: p.cons,
       });
     }
     const enemies = [];
@@ -950,12 +1016,14 @@ export class Sim {
     }
     const bullets = this.pBullets.map(b => ({ id: b.id, x: b.x, y: b.y, owner: b.owner }));
     const zones = this.zones.map(z => ({ kind: z.kind, x: z.x, y: z.y, r: z.r, ttl: z.ttl }));
+    const pickups = [...this.pickups.values()];
     return {
       tick: this.tick, phase: this.phase, wave: this.wave,
       phaseT: Math.max(0, Math.round(this.phaseT * 30)),
       mult: this.mult, unbanked: Math.round(this.unbanked), banked: Math.round(this.banked),
       enemiesLeft: this.enemies.size + this.pending.length,
-      players, enemies, bullets, zones,
+      stasis: this.stasisT,
+      players, enemies, bullets, zones, pickups,
     };
   }
 }

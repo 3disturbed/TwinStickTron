@@ -20,10 +20,10 @@ test("input round-trips", () => {
 test("snapshot round-trips", () => {
   const snap = {
     tick: 90210, phase: 1, wave: 7, phaseT: 300, mult: 4.2,
-    unbanked: 123456, banked: 999999, enemiesLeft: 42,
+    unbanked: 123456, banked: 999999, enemiesLeft: 42, stasis: 3.5,
     players: [
-      { id: 1, pilot: 2, state: 0, x: 1024.5, y: 576.25, aim: 1.5, hp: 3, dashCd: 1.2, abilCd: 7, bombs: 2, flags: 3 },
-      { id: 2, pilot: 0, state: 1, x: 24, y: 1128, aim: 0, hp: 0, dashCd: 0, abilCd: 0, bombs: 0, flags: 4 },
+      { id: 1, pilot: 2, state: 0, x: 1024.5, y: 576.25, aim: 1.5, hp: 3, dashCd: 1.2, abilCd: 7, bombs: 2, flags: 3, orbitals: 3, cons: [1, 4, 0] },
+      { id: 2, pilot: 0, state: 1, x: 24, y: 1128, aim: 0, hp: 0, dashCd: 0, abilCd: 0, bombs: 0, flags: 4, orbitals: 0, cons: [] },
     ],
     enemies: [
       { id: 501, kind: 4, x: 2000.125, y: 100, hpPct: 55, flags: 1 },
@@ -31,9 +31,19 @@ test("snapshot round-trips", () => {
     ],
     bullets: [{ id: 9, x: 500, y: 500, owner: 1 }],
     zones: [{ kind: 2, x: 300, y: 300, r: 90, ttl: 1.2 }],
+    pickups: [{ id: 77, kind: 3, x: 640.5, y: 480, ttl: 7.4 }],
   };
   const buf = encodeSnapshot(snap);
   const d = decodeSnapshot(new DataView(buf));
+  assert.ok(Math.abs(d.stasis - 3.5) < 0.06);
+  assert.equal(d.players[0].orbitals, 3);
+  assert.deepEqual(d.players[0].cons, [1, 4, 0]);
+  assert.deepEqual(d.players[1].cons, [0, 0, 0]);
+  assert.equal(d.pickups.length, 1);
+  assert.equal(d.pickups[0].id, 77);
+  assert.equal(d.pickups[0].kind, 3);
+  assert.ok(Math.abs(d.pickups[0].x - 640.5) < 0.13);
+  assert.ok(Math.abs(d.pickups[0].ttl - 7.4) < 0.11);
   assert.equal(d.tick, snap.tick);
   assert.equal(d.wave, 7);
   assert.equal(d.unbanked, 123456);

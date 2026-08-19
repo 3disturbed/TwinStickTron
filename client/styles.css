@@ -129,6 +129,7 @@ input:focus { border-color: #39f0ff; box-shadow: 0 0 12px rgba(57, 240, 255, 0.3
 }
 #tbtn-bomb { right: calc(6vw + 130px); }
 #tbtn-abil { right: calc(6vw - 10px); bottom: calc(26vh + 40px); }
+#tbtn-use { right: calc(6vw + 130px); bottom: calc(26vh + 70px); }
 
 .btn.small { padding: 8px 14px; font-size: 0.85rem; }
 .btn.daily { border-color: #7a5cff88; color: #b8a6ff; }

@@ -71,6 +71,8 @@ export const sfx = {
   boss() { blip(98, 0.7, "sawtooth", 1, 30); setTimeout(() => blip(98, 0.7, "sawtooth", 1, 30), 400); },
   bank() { blip(784, 0.08, "sine", 0.6); setTimeout(() => blip(1046, 0.12, "sine", 0.6), 90); },
   pick() { blip(523, 0.1, "triangle", 0.5); },
+  pickup() { blip(880, 0.07, "sine", 0.5); setTimeout(() => blip(1320, 0.09, "sine", 0.5), 70); },
+  use() { blip(660, 0.12, "triangle", 0.7, 400); noise(0.08, 0.3); },
   over() { blip(196, 0.5, "sawtooth", 0.9, -80); setTimeout(() => blip(147, 0.8, "sawtooth", 0.9, -50), 350); },
   win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 0.25, "triangle", 0.8), i * 140)); },
 };

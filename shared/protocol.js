@@ -14,7 +14,7 @@ export const MSG = {
   PONG: 0x09,     // S→C binary [f64 clientTime][f64 serverTimeMs][u32 serverTick]
 };
 
-export const BTN = { FIRE: 1, DASH: 2, BOMB: 4, ABILITY: 8 };
+export const BTN = { FIRE: 1, DASH: 2, BOMB: 4, ABILITY: 8, USE: 16 };
 
 import { POS_SCALE } from "./constants.js";
 
@@ -70,13 +70,15 @@ export function decodePong(v) {
 
 // ---------- SNAPSHOT ----------
 // Header: [id u8][tick u32][yourAck u16][phase u8][wave u8][phaseT u16]
-//         [mult10 u8][unbanked u32][banked u32][enemiesLeft u16]
-// players u8 ×13B, enemies u16 ×9B, bullets u16 ×9B, zones u8 ×9B
+//         [mult10 u8][unbanked u32][banked u32][enemiesLeft u16][stasis10 u8]
+// players u8 ×17B, enemies u16 ×9B, bullets u16 ×9B, zones u8 ×9B,
+// pickups u8 ×8B
 export const ACK_OFFSET = 5; // patched per-recipient before send
 
 export function encodeSnapshot(s) {
-  const size = 22 + 1 + s.players.length * 13 + 2 + s.enemies.length * 9 +
-               2 + s.bullets.length * 9 + 1 + s.zones.length * 9;
+  const size = 23 + 1 + s.players.length * 17 + 2 + s.enemies.length * 9 +
+               2 + s.bullets.length * 9 + 1 + s.zones.length * 9 +
+               1 + s.pickups.length * 8;
   const b = new ArrayBuffer(size);
   const v = new DataView(b);
   let o = 0;
@@ -90,6 +92,7 @@ export function encodeSnapshot(s) {
   v.setUint32(o, s.unbanked >>> 0, true); o += 4;
   v.setUint32(o, s.banked >>> 0, true); o += 4;
   v.setUint16(o, s.enemiesLeft, true); o += 2;
+  v.setUint8(o, Math.min(255, Math.round((s.stasis ?? 0) * 10))); o += 1;
 
   v.setUint8(o, s.players.length); o += 1;
   for (const p of s.players) {
@@ -100,7 +103,11 @@ export function encodeSnapshot(s) {
     v.setUint8(o + 10, Math.min(255, Math.round(p.abilCd)));
     v.setUint8(o + 11, p.bombs);
     v.setUint8(o + 12, p.flags);
-    o += 13;
+    v.setUint8(o + 13, p.orbitals ?? 0);
+    v.setUint8(o + 14, p.cons?.[0] ?? 0);
+    v.setUint8(o + 15, p.cons?.[1] ?? 0);
+    v.setUint8(o + 16, p.cons?.[2] ?? 0);
+    o += 17;
   }
   v.setUint16(o, s.enemies.length, true); o += 2;
   for (const e of s.enemies) {
@@ -124,6 +131,14 @@ export function encodeSnapshot(s) {
     v.setUint16(o + 7, Math.min(65535, Math.round(z.ttl * 10)), true);
     o += 9;
   }
+  v.setUint8(o, s.pickups.length); o += 1;
+  for (const k of s.pickups) {
+    v.setUint16(o, k.id, true);
+    v.setUint8(o + 2, k.kind);
+    v.setUint16(o + 3, qp(k.x), true); v.setUint16(o + 5, qp(k.y), true);
+    v.setUint8(o + 7, Math.min(255, Math.round(k.ttl * 10)));
+    o += 8;
+  }
   return b;
 }
 
@@ -139,6 +154,7 @@ export function decodeSnapshot(v) {
   s.unbanked = v.getUint32(o, true); o += 4;
   s.banked = v.getUint32(o, true); o += 4;
   s.enemiesLeft = v.getUint16(o, true); o += 2;
+  s.stasis = v.getUint8(o) / 10; o += 1;
 
   const np = v.getUint8(o); o += 1;
   s.players = new Array(np);
@@ -149,8 +165,10 @@ export function decodeSnapshot(v) {
       aim: ua(v.getUint8(o + 7)), hp: v.getUint8(o + 8),
       dashCd: v.getUint8(o + 9) / 10, abilCd: v.getUint8(o + 10),
       bombs: v.getUint8(o + 11), flags: v.getUint8(o + 12),
+      orbitals: v.getUint8(o + 13),
+      cons: [v.getUint8(o + 14), v.getUint8(o + 15), v.getUint8(o + 16)],
     };
-    o += 13;
+    o += 17;
   }
   const ne = v.getUint16(o, true); o += 2;
   s.enemies = new Array(ne);
@@ -182,6 +200,16 @@ export function decodeSnapshot(v) {
       ttl: v.getUint16(o + 7, true) / 10,
     };
     o += 9;
+  }
+  const nk = v.getUint8(o); o += 1;
+  s.pickups = new Array(nk);
+  for (let i = 0; i < nk; i++) {
+    s.pickups[i] = {
+      id: v.getUint16(o, true), kind: v.getUint8(o + 2),
+      x: uq(v.getUint16(o + 3, true)), y: uq(v.getUint16(o + 5, true)),
+      ttl: v.getUint8(o + 7) / 10,
+    };
+    o += 8;
   }
   return s;
 }

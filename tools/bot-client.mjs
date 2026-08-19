@@ -44,7 +44,7 @@ function bot(code, n, roomIdx) {
         seq = (seq + 1) % 65536,
         Math.cos(ang), Math.sin(ang),
         Math.cos(t * 0.2), Math.sin(t * 0.2),
-        BTN.FIRE | (t % 60 === 0 ? BTN.DASH : 0),
+        BTN.FIRE | (t % 60 === 0 ? BTN.DASH : 0) | (t % 210 === 0 ? BTN.USE : 0),
       ));
     }, 33));
   });

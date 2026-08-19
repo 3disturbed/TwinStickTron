@@ -3,6 +3,7 @@
 
 import { PHASE, PS, PLAYER, WAVE, PILOTS } from "/shared/constants.js";
 import { ENEMIES } from "/shared/enemies.js";
+import { CONSUMABLES, CK } from "/shared/consumables.js";
 import { BTN } from "/shared/protocol.js";
 import { net, createRoom, connect, sendInput, sendAction } from "./net.js";
 import { world, onSnapshot, handleEvent, resetForRun, inGame } from "./game.js";
@@ -213,6 +214,22 @@ net.onEvent = (ev) => {
     case "class_grant":
       sfx.pick();
       break;
+    case "pickup_got":
+      if (ev.who === world.myId) {
+        const c = CONSUMABLES[ev.kind];
+        if (c) UI.toast(`${c.glyph} ${c.name} — press F to use`, 2200);
+        sfx.pickup();
+      }
+      break;
+    case "consumed": {
+      const c = CONSUMABLES[ev.kind];
+      if (ev.who === world.myId && c) {
+        UI.banner(`${c.glyph} ${c.name.toUpperCase()}`, false, 1200);
+        if (ev.kind === CK.SHIELD) R.addTrauma(0.1);
+      }
+      sfx.use();
+      break;
+    }
     case "draft_offer":
       UI.showDraft(ev.offer, world.unbanked, true, world.lastGrant);
       world.lastGrant = null;

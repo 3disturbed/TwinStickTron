@@ -2,10 +2,11 @@
 // runtime shadowBlur), additive compositing, pooled particles, trauma
 // shake, hitstop. Whole arena fits on screen (letterboxed).
 
-import { ARENA_W, ARENA_H, PILOTS, ZK, PS, PHASE, PLAYER, WAVE, EK } from "/shared/constants.js";
+import { ARENA_W, ARENA_H, PILOTS, ZK, PS, PHASE, PLAYER, WAVE, EK, ORBITAL, TICK_DT } from "/shared/constants.js";
 import { ENEMIES } from "/shared/enemies.js";
+import { CONSUMABLES } from "/shared/consumables.js";
 import { PF, EF } from "/shared/protocol.js";
-import { world, myHpMax } from "./game.js";
+import { world, myHpMax, serverTickNow } from "./game.js";
 import { net } from "./net.js";
 
 // player-tunable accessibility settings (SDD §2.11) — main.js loads/saves
@@ -119,6 +120,7 @@ export function draw(dt) {
 
   drawGrid();
   drawZones(dt);
+  drawPickups();
   drawBullets(dt);
   drawEnemies();
   drawLasers();
@@ -187,6 +189,29 @@ function drawTheDark() {
   }
   for (const e of world.enemies) punch(e.x, e.y, ENEMIES[e.kind]?.boss ? 60 : 24); // eyes stay visible
   ctx.drawImage(lightCanvas, 0, 0, W, H);
+}
+
+function drawPickups() {
+  const now = performance.now();
+  ctx.font = "bold 15px ui-monospace, monospace";
+  ctx.textAlign = "center";
+  for (const k of world.pickups ?? []) {
+    const def = CONSUMABLES[k.kind];
+    if (!def) continue;
+    // expiring pickups blink (steady-dim when flashes are disabled)
+    let a = 1;
+    if (k.ttl < 3) a = settings.flash ? (Math.floor(now / 160) % 2 ? 0.25 : 1) : 0.5;
+    ctx.globalAlpha = a;
+    ctx.globalCompositeOperation = "lighter";
+    blit(glow(def.color), k.x, k.y, 46);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.strokeStyle = def.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(k.x, k.y, 14, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = "#fff";
+    ctx.fillText(def.glyph, k.x, k.y + 5);
+  }
+  ctx.globalAlpha = 1;
 }
 
 function drawLasers() {
@@ -451,6 +476,30 @@ function drawPlayers() {
     ctx.globalCompositeOperation = "lighter";
     blit(glow(pilot.color), x, y, 64);
     ctx.globalCompositeOperation = "source-over";
+    // orbital blades — rendered from the same tick formula the server
+    // damages with, so what you see is what shreds
+    if (p.orbitals > 0) {
+      const k = p.orbitals;
+      const base = serverTickNow() * TICK_DT * ORBITAL.ROT;
+      ctx.globalCompositeOperation = "lighter";
+      for (let i = 0; i < k; i++) {
+        const a = base + (i / k) * Math.PI * 2;
+        const ox = x + Math.cos(a) * ORBITAL.R, oy = y + Math.sin(a) * ORBITAL.R;
+        blit(glow("#e8fbff"), ox, oy, 34);
+        ctx.save();
+        ctx.translate(ox, oy);
+        ctx.rotate(a * 6);
+        ctx.fillStyle = "#e8fbff";
+        ctx.beginPath();
+        ctx.moveTo(9, 0); ctx.lineTo(0, 4); ctx.lineTo(-9, 0); ctx.lineTo(0, -4);
+        ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = "rgba(232,251,255,0.14)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, y, ORBITAL.R, 0, Math.PI * 2); ctx.stroke();
+    }
     // ship triangle
     ctx.save();
     ctx.translate(x, y);
@@ -463,6 +512,11 @@ function drawPlayers() {
     ctx.closePath();
     ctx.fill(); ctx.stroke();
     ctx.restore();
+    // class symbol at the arrow's centre — upright regardless of aim
+    ctx.font = "bold 11px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = pilot.color;
+    ctx.fillText(pilot.symbol, x - 1, y + 4);
     ctx.globalAlpha = 1;
     if (!mine) {
       ctx.font = "11px ui-monospace, monospace";
@@ -546,6 +600,41 @@ function drawHUD() {
   for (let i = 0; i < pips; i++) {
     ctx.fillStyle = i < world.myHp ? "#ff5b6e" : "rgba(255,255,255,0.15)";
     ctx.fillRect(pad + i * 26, H - 30, 20, 14);
+  }
+  // consumable slots (bottom centre) — F / gamepad X / touch ✚ to use
+  const cons = world.myCons ?? [];
+  const slotW = 36, total = 3 * (slotW + 6);
+  for (let i = 0; i < 3; i++) {
+    const sx = W / 2 - total / 2 + i * (slotW + 6);
+    const kind = cons[i];
+    const def = kind ? CONSUMABLES[kind] : null;
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillRect(sx, H - 46, slotW, 32);
+    ctx.strokeStyle = def ? def.color : "rgba(255,255,255,0.15)";
+    ctx.lineWidth = i === 0 && def ? 2.5 : 1;
+    ctx.strokeRect(sx, H - 46, slotW, 32);
+    if (def) {
+      ctx.font = "bold 16px ui-monospace, monospace";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(def.glyph, sx + slotW / 2, H - 24);
+    }
+  }
+  if (cons.length) {
+    ctx.font = "10px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#66779c";
+    ctx.fillText("F · USE", W / 2, H - 52);
+  }
+  // stasis indicator
+  if (world.stasis > 0) {
+    ctx.strokeStyle = "rgba(143,180,255,0.5)";
+    ctx.lineWidth = 6;
+    ctx.strokeRect(3, 3, W - 6, H - 6);
+    ctx.font = "bold 15px ui-monospace, monospace";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#8fb4ff";
+    ctx.fillText(`❄ STASIS ${world.stasis.toFixed(1)}s`, W / 2, 30);
   }
   // bombs + dash + ability (bottom right)
   ctx.textAlign = "right";

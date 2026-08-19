@@ -7,7 +7,7 @@ import { screenToWorld } from "./render.js";
 
 const keys = new Set();
 let mouseX = 0, mouseY = 0, mouseDown = false, rmbDown = false;
-let bombTap = false, abilTap = false;
+let bombTap = false, abilTap = false, useTap = false;
 const touch = { l: null, r: null, lx: 0, ly: 0, rx: 0, ry: 0 };
 export let touchActive = false;
 
@@ -83,6 +83,7 @@ export function initInput(canvas) {
   canvas.addEventListener("touchcancel", endTouch);
   document.getElementById("tbtn-bomb").addEventListener("touchstart", (e) => { bombTap = true; e.preventDefault(); }, { passive: false });
   document.getElementById("tbtn-abil").addEventListener("touchstart", (e) => { abilTap = true; e.preventDefault(); }, { passive: false });
+  document.getElementById("tbtn-use").addEventListener("touchstart", (e) => { useTap = true; e.preventDefault(); }, { passive: false });
 }
 
 // double-tap-ish dash on touch: quick full deflection after neutral
@@ -99,6 +100,7 @@ export function pollInput() {
   if (keys.has("Space") || keys.has("ShiftLeft") || keys.has("ShiftRight")) buttons |= BTN.DASH;
   if (keys.has("KeyE")) buttons |= BTN.BOMB;
   if (keys.has("KeyQ")) buttons |= BTN.ABILITY;
+  if (keys.has("KeyF")) buttons |= BTN.USE;
   if (mouseDown) buttons |= BTN.FIRE;
 
   // mouse aim: vector from my ship to cursor, in world space
@@ -119,6 +121,7 @@ export function pollInput() {
     if (gp.buttons[5]?.pressed || gp.buttons[10]?.pressed) buttons |= BTN.DASH; // RB / L3
     if (gp.buttons[4]?.pressed) buttons |= BTN.BOMB;                            // LB
     if (gp.buttons[7]?.pressed || gp.buttons[0]?.pressed) buttons |= BTN.ABILITY; // RT / A
+    if (gp.buttons[2]?.pressed) buttons |= BTN.USE;                             // X — consumable
     break;
   }
 
@@ -135,6 +138,7 @@ export function pollInput() {
   }
   if (bombTap) { buttons |= BTN.BOMB; bombTap = false; }
   if (abilTap) { buttons |= BTN.ABILITY; abilTap = false; }
+  if (useTap) { buttons |= BTN.USE; useTap = false; }
 
   const l = Math.hypot(mx, my);
   if (l > 1) { mx /= l; my /= l; }

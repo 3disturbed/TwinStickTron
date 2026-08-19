@@ -41,6 +41,7 @@ function runScenario(nPlayers) {
       if (nearest && nd < 90) buttons |= BTN.DASH;
       if ((crowd > 4 || (p.hp === 1 && crowd > 1)) && p.bombs > 0) buttons |= BTN.BOMB;
       if (t % 500 === p.id % 500) buttons |= BTN.ABILITY;
+      if (p.cons.length > 0 && t % 150 === 7) buttons |= BTN.USE; // burn consumables
       p.input = { seq: t, mx: mx / ml, my: my / ml, ax, ay, buttons };
     }
     const t0 = process.hrtime.bigint();

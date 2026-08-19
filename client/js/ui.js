@@ -23,7 +23,7 @@ export function initMenu(joinCode, defaults) {
     const el = document.createElement("div");
     el.className = "pilot" + (p.id === defaults.pilot ? " sel" : "");
     el.style.setProperty("--c", p.color);
-    el.innerHTML = `<div class="nm" style="color:${p.color}">${p.name}</div><div class="ab">${p.lean}<br>✦ ${p.ability}</div>`;
+    el.innerHTML = `<div class="nm" style="color:${p.color}">${p.symbol} ${p.name}</div><div class="ab">${p.lean}<br>✦ ${p.ability}</div>`;
     el.onclick = () => {
       pilotsEl.querySelectorAll(".pilot").forEach(x => x.classList.remove("sel"));
       el.classList.add("sel");
@@ -62,7 +62,7 @@ export function updateRoster(roster, myId) {
     slot.className = "slot" + (r ? " filled" : "");
     if (r) {
       const pilot = PILOTS[r.pilot] ?? PILOTS[0];
-      slot.innerHTML = `<span style="color:${pilot.color}">${r.name}${r.id === myId ? " (YOU)" : ""}</span><span class="dim">${pilot.name}</span>`;
+      slot.innerHTML = `<span style="color:${pilot.color}">${r.name}${r.id === myId ? " (YOU)" : ""}</span><span class="dim">${pilot.symbol} ${pilot.name}</span>`;
     } else {
       slot.textContent = "— open slot — send the link —";
     }

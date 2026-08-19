@@ -80,14 +80,21 @@ export const PS = { ALIVE: 0, DOWNED: 1, OUT: 2, SPECTATING: 3 };
 // Room phase (u8)
 export const PHASE = { LOBBY: 0, WAVE: 1, INTERMISSION: 2, GAMEOVER: 3, VICTORY: 4 };
 
+// symbol: drawn at the centre of the ship arrow so classes read at a glance
 export const PILOTS = [
-  { id: 0, name: "VANTA", color: "#39f0ff", lean: "all-round", ability: "Blink Volley", speed: 1.0, fire: 1.0 },
-  { id: 1, name: "EMBER", color: "#ff7a3d", lean: "close range", ability: "Flame Zone", speed: 1.05, fire: 1.0 },
-  { id: 2, name: "HALO", color: "#b8ff5e", lean: "support", ability: "Aegis Field", speed: 1.0, fire: 0.95 },
-  { id: 3, name: "ONYX", color: "#c26bfa", lean: "heavy", ability: "Gravity Well", speed: 0.92, fire: 1.1 },
+  { id: 0, name: "VANTA", color: "#39f0ff", lean: "all-round", ability: "Blink Volley", symbol: "✦", speed: 1.0, fire: 1.0 },
+  { id: 1, name: "EMBER", color: "#ff7a3d", lean: "close range", ability: "Flame Zone", symbol: "▲", speed: 1.05, fire: 1.0 },
+  { id: 2, name: "HALO", color: "#b8ff5e", lean: "support", ability: "Aegis Field", symbol: "◯", speed: 1.0, fire: 0.95 },
+  { id: 3, name: "ONYX", color: "#c26bfa", lean: "heavy", ability: "Gravity Well", symbol: "◉", speed: 0.92, fire: 1.1 },
 ];
 
 export const MAX_PLAYERS = 8; // per lobby
+
+// Orbital blades (the "Orbital"/"Twin Orbital" mods) — shared so the client
+// renders blades exactly where the server deals the damage.
+export const ORBITAL = { R: 60, BLADE: 14, ROT: 4, DPS: 4 };
+
+export const PICKUP = { RADIUS: 18, TTL: 12, MAX_CARRY: 3, MAX_LIVE: 40 };
 
 export const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/O/1/I/L
 export const ROOM_CODE_LEN = 6;

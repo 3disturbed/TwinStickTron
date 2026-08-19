@@ -19,6 +19,7 @@ export const world = {
   players: [], enemies: [], bullets: [], zones: [], // interpolated view
   eBullets: [],                                      // client-simmed pattern bullets
   lasers: [],                                        // sniper telegraphs & beams
+  pickups: [], myCons: [], stasis: 0,                // consumables
   me: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0, alive: true },
   myPilot: 0, myMods: [], myStats: computeStats(PILOTS[0], []),
   myHp: 3, myBombs: 1, myDashCd: 0, myAbilCd: 0, myState: PS.ALIVE,
@@ -43,11 +44,15 @@ export function onSnapshot(s) {
   world.mult = s.mult; world.unbanked = s.unbanked; world.banked = s.banked;
   world.enemiesLeft = s.enemiesLeft;
 
+  world.stasis = s.stasis ?? 0;
+  world.pickups = s.pickups ?? [];
+
   const meS = s.players.find(p => p.id === world.myId);
   if (meS) {
     world.myHp = meS.hp; world.myBombs = meS.bombs;
     world.myDashCd = meS.dashCd; world.myAbilCd = meS.abilCd;
     world.myState = meS.state;
+    world.myCons = (meS.cons ?? []).filter(Boolean);
     world.overdrive = !!(meS.flags & PF.OVERDRIVE);
     // reconcile prediction: gentle blend, hard snap on big error
     const err = Math.hypot(meS.x - world.me.x, meS.y - world.me.y);
@@ -144,6 +149,13 @@ export function handleEvent(ev) {
 }
 
 export function myHpMax() { return Math.max(1, 3 + (world.myStats.maxHp | 0)); }
+
+// Estimated current server tick — keeps client-drawn orbitals in phase with
+// where the server actually deals blade damage.
+export function serverTickNow() {
+  if (!world.currSnap) return 0;
+  return world.serverTick + (performance.now() - world.currAt) / 1000 * TICK_RATE;
+}
 
 let uiBlock = false;
 export function setUiBlocking(b) { uiBlock = b; }
