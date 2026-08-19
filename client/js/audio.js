@@ -1,16 +1,21 @@
 // WebAudio synth — zero asset files. Kill sounds climb a pentatonic run
 // inside a combo window (the Peggle rule, SDD §2.10).
 
-let ctx = null, master = null;
+let ctx = null, master = null, desiredVol = 0.25;
 
 export function ensureAudio() {
   if (ctx) { if (ctx.state === "suspended") ctx.resume(); return; }
   try {
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     master = ctx.createGain();
-    master.gain.value = 0.25;
+    master.gain.value = desiredVol;
     master.connect(ctx.destination);
   } catch { ctx = null; }
+}
+
+export function setVolume(v) {
+  desiredVol = v;
+  if (master) master.gain.value = v;
 }
 
 function blip(freq, dur, type = "square", vol = 1, slide = 0) {

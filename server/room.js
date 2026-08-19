@@ -8,16 +8,20 @@ import {
 } from "../shared/protocol.js";
 import { TICK_DT, SNAPSHOT_EVERY, PHASE, PS } from "../shared/constants.js";
 import { Sim } from "./sim.js";
+import { todayUTC } from "./db.js";
 
 const MAX_PLAYERS = 4;
 const EMPTY_GRACE_MS = 10 * 60 * 1000; // codes survive 10 min empty (SDD §3.5)
 const INPUT_FLOOD_LIMIT = 90;          // inputs/sec before we drop frames
 
 export class Room {
-  constructor(code, onEmpty) {
+  constructor(code, onEmpty, opts = {}) {
     this.code = code;
     this.onEmpty = onEmpty;
+    this.db = opts.db ?? null;
+    this.mode = opts.mode ?? "run";
     this.sim = new Sim();
+    if (opts.dailySeed != null) this.sim.dailySeed = opts.dailySeed;
     this.clients = new Map();   // playerId -> {ws, name, lastSeq, inputCount, resumeKey}
     this.resumeKeys = new Map(); // resumeKey -> playerId (survives disconnects)
     this.nextId = 1;
@@ -164,6 +168,17 @@ export class Room {
   drainEvents() {
     if (!this.sim.events.length) return;
     for (const ev of this.sim.events) {
+      // run end: record the server-authoritative score, attach the rank
+      if ((ev.t === "gameover" || ev.t === "victory") && this.db && ev.score > 0) {
+        const names = (ev.roster ?? []).map(r => r.name);
+        const r = this.db.submit({
+          mode: this.mode, date: todayUTC(), squad: Math.max(1, names.length),
+          score: ev.score, wave: ev.wave, names,
+        });
+        ev.rank = r.accepted ? r.rank : null;
+        ev.counted = r.accepted;
+        ev.mode = this.mode;
+      }
       if (ev.to != null) {
         const c = this.clients.get(ev.to);
         if (c && c.ws.readyState === 1) c.ws.send(encodeJson(MSG.EVENT, ev));

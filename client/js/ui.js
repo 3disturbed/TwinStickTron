@@ -5,7 +5,7 @@ import { PILOTS, PHASE } from "/shared/constants.js";
 import { MODS, modById } from "/shared/mods.js";
 
 const $ = (id) => document.getElementById(id);
-const screens = ["screen-menu", "screen-lobby", "screen-draft", "screen-score"];
+const screens = ["screen-menu", "screen-lobby", "screen-draft", "screen-score", "screen-settings", "screen-lb"];
 
 export const ui = { onAction: null }; // main.js wires this
 
@@ -118,11 +118,68 @@ export function hideDraft() { $("screen-draft").classList.add("hidden"); }
 export function showScore(ev, victory) {
   $("score-title").textContent = victory ? "🏆 ARENA CLEARED" : "RUN OVER";
   const rows = (ev.roster ?? []).map(r => `<div>${r.name}: ${r.kills} kills</div>`).join("");
+  let rankLine = "";
+  if (ev.counted && ev.rank) {
+    const what = ev.mode === "daily" ? "DAILY DARK RANK" : "WORLD RANK";
+    rankLine = `<div style="color:#39f0ff">★ ${what} #${ev.rank}</div>`;
+  } else if (ev.mode === "daily" && ev.counted === false) {
+    rankLine = `<div class="lost">Daily already attempted today — score not counted</div>`;
+  }
   $("score-body").innerHTML =
-    `<div class="big">${ev.score.toLocaleString("en-US")}</div>` +
+    `<div class="big">${ev.score.toLocaleString("en-US")}</div>` + rankLine +
     (ev.lost > 0 ? `<div class="lost">${ev.lost.toLocaleString("en-US")} unbanked — gone</div>` : "") +
     `<div>Wave ${ev.wave} · best ×${ev.bestMult}</div>` + rows;
   showScreen("screen-score");
+}
+
+// ---------- settings ----------
+export function openSettings(s) {
+  $("set-shake").value = Math.round(s.shake * 100);
+  $("set-floor").value = Math.round(s.floor * 100);
+  $("set-vol").value = Math.round(s.volume * 400); // master 0..0.25 → 0..100
+  syncSettingLabels(s);
+  showScreen("screen-settings");
+}
+export function syncSettingLabels(s) {
+  $("v-shake").textContent = `${Math.round(s.shake * 100)}%`;
+  $("v-floor").textContent = `${Math.round(s.floor * 100)}%`;
+  $("v-vol").textContent = `${Math.round(s.volume * 400)}%`;
+  $("set-flash").textContent = s.flash ? "ON" : "OFF (photosensitive)";
+}
+export function bindSettings(s, onChange) {
+  $("set-shake").oninput = (e) => { s.shake = e.target.value / 100; syncSettingLabels(s); onChange(); };
+  $("set-floor").oninput = (e) => { s.floor = e.target.value / 100; syncSettingLabels(s); onChange(); };
+  $("set-vol").oninput = (e) => { s.volume = e.target.value / 400; syncSettingLabels(s); onChange(); };
+  $("set-flash").onclick = () => { s.flash = !s.flash; syncSettingLabels(s); onChange(); };
+}
+
+// ---------- leaderboards ----------
+export function openLeaderboard(fetchTab) {
+  const tabs = document.querySelectorAll(".lb-tab");
+  tabs.forEach(b => {
+    b.onclick = () => {
+      tabs.forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      fetchTab(b.dataset.mode, b.dataset.period);
+    };
+  });
+  tabs[0].classList.add("active");
+  tabs.forEach((x, i) => { if (i) x.classList.remove("active"); });
+  fetchTab("run", "all");
+  showScreen("screen-lb");
+}
+export function renderLeaderboard(rows) {
+  const el = $("lb-body");
+  if (!rows.length) { el.innerHTML = `<p class="dim">No scores yet — set the first one.</p>`; return; }
+  el.innerHTML = rows.map((r, i) =>
+    `<div class="lb-row"><span class="rank">${i + 1}</span>` +
+    `<span class="score">${r.score.toLocaleString("en-US")}</span>` +
+    `<span class="who">${r.names.map(escapeHtml).join(" + ")}</span>` +
+    `<span class="wave">w${r.wave}${r.squad > 1 ? ` · ${r.squad}p` : ""}</span></div>`
+  ).join("");
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // ---------- toast & banner ----------

@@ -9,11 +9,11 @@ export class Rooms {
     this.map = new Map();
   }
 
-  create() {
+  create(opts = {}) {
     if (this.map.size >= this.cap) return null; // "server full, retry" (SDD §3.5)
     let code;
     do { code = genCode(); } while (this.map.has(code));
-    const room = new Room(code, (c) => this.map.delete(c));
+    const room = new Room(code, (c) => this.map.delete(c), opts);
     this.map.set(code, room);
     return room;
   }

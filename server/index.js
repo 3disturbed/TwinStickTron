@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readFileSync, existsSync } from "node:fs";
 import { Rooms } from "./rooms.js";
+import { openDb, todayUTC } from "./db.js";
 import { MSG, decodeJson, encodeJson } from "../shared/protocol.js";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -24,9 +25,11 @@ if (existsSync(envPath)) {
 const PORT = Number(process.env.PORT || 3000);
 const ROOM_CAP = Number(process.env.ROOM_CAP || 64);
 
+const db = openDb(process.env.DB_PATH || path.join(ROOT, "server", "db", "ultradark.db"));
 const rooms = new Rooms(ROOM_CAP);
 const app = express();
 app.disable("x-powered-by");
+app.use(express.json({ limit: "2kb" }));
 
 // Rate limit room creation per IP (SDD §3.9): 10/min
 const createHits = new Map();
@@ -37,9 +40,27 @@ app.post("/api/rooms", (req, res) => {
   const hits = (createHits.get(ip) ?? 0) + 1;
   createHits.set(ip, hits);
   if (hits > 10) return res.status(429).json({ error: "slow_down" });
-  const room = rooms.create();
+  const mode = req.body?.mode === "daily" ? "daily" : "run";
+  const dailySeed = mode === "daily" ? db.getDailySeed(todayUTC()) : null;
+  const room = rooms.create({ db, mode, dailySeed });
   if (!room) return res.status(503).json({ error: "server_full" });
-  res.json({ code: room.code, joinUrl: `https://ultradark.darksgames.app/j/${room.code}` });
+  res.json({ code: room.code, mode, joinUrl: `https://ultradark.darksgames.app/j/${room.code}` });
+});
+
+app.get("/api/daily", (_req, res) => {
+  const date = todayUTC();
+  db.getDailySeed(date); // ensure today's seed exists
+  res.json({ date, top: db.top("daily", { date, limit: 20 }) });
+});
+
+app.get("/api/leaderboard", (req, res) => {
+  const mode = req.query.mode === "daily" ? "daily" : "run";
+  if (mode === "daily") {
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date ?? "") ? req.query.date : todayUTC();
+    return res.json({ mode, date, top: db.top("daily", { date, limit: 20 }) });
+  }
+  const sinceMs = req.query.period === "week" ? Date.now() - 7 * 86400_000 : 0;
+  res.json({ mode, period: req.query.period === "week" ? "week" : "all", top: db.top("run", { sinceMs, limit: 20 }) });
 });
 
 app.get("/api/rooms/:code", (req, res) => {

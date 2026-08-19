@@ -13,10 +13,14 @@ export const net = {
   pingTimer: null,
 };
 
-export async function createRoom() {
-  const res = await fetch("/api/rooms", { method: "POST" });
+export async function createRoom(mode = "run") {
+  const res = await fetch("/api/rooms", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "create_failed");
-  return res.json(); // {code, joinUrl}
+  return res.json(); // {code, mode, joinUrl}
 }
 
 export function connect(code, hello) {

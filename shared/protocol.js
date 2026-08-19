@@ -193,4 +193,4 @@ const ua = (b) => (b / 255) * Math.PI * 2;
 
 // Player flag bits
 export const PF = { DASHING: 1, IFRAMES: 2, REVIVING: 4, OVERDRIVE: 8 };
-export const EF = { ENRAGED: 1, WARPING: 2 };
+export const EF = { ENRAGED: 1, WARPING: 2, OPEN: 4, PHASED: 8 };

@@ -46,11 +46,12 @@ export const MULT = {
 };
 
 export const WAVE = {
-  MAX: 10,               // v1 run length; victory beyond this
+  MAX: 25,               // full run per SDD §2.1; victory at 25
   INTERMISSION_S: 20,
   BOSS_EVERY: 5,
   SPAWN_MIN_DIST: 320,   // never spawn within this of a player (SDD §2.9)
   WARP_IN_S: 0.5,
+  DARK_START: 16,        // arena lighting starts failing here (SDD §2.4)
 };
 
 export const REVIVE_COST_PER_WAVE = 100;  // banked-score insurance (SDD §2.3)
@@ -58,7 +59,8 @@ export const REVIVE_COST_PER_WAVE = 100;  // banked-score insurance (SDD §2.3)
 // Entity kind ids on the wire (u8)
 export const EK = {
   DRONE: 1, MITE: 2, WEAVER: 3, BRUTE: 4, SPINNER: 5, MORTAR: 6,
-  BRUTE_PRIME: 20, HEX_PRIME: 21,
+  SNIPER: 7, LEECH: 8, WARDEN: 9, FORGE: 10, GHOST: 11, MAGNET: 12,
+  BRUTE_PRIME: 20, HEX_PRIME: 21, FOUNDRY: 22, SHEPHERD: 23, ULTRADARK: 24,
 };
 
 // Zone kinds (telegraphs & fields, streamed in snapshots, u8)
@@ -69,6 +71,7 @@ export const ZK = {
   FLAME: 4,       // EMBER wall/zone
   AEGIS: 5,       // HALO bubble
   WELL: 6,        // ONYX gravity well
+  DARK: 7,        // NULL SHEPHERD's spreading darkness
 };
 
 // Player state (u8)

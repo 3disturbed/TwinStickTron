@@ -2,16 +2,20 @@
 // runtime shadowBlur), additive compositing, pooled particles, trauma
 // shake, hitstop. Whole arena fits on screen (letterboxed).
 
-import { ARENA_W, ARENA_H, PILOTS, ZK, PS, PHASE, PLAYER } from "/shared/constants.js";
+import { ARENA_W, ARENA_H, PILOTS, ZK, PS, PHASE, PLAYER, WAVE, EK } from "/shared/constants.js";
 import { ENEMIES } from "/shared/enemies.js";
 import { PF, EF } from "/shared/protocol.js";
-import { world } from "./game.js";
+import { world, myHpMax } from "./game.js";
 import { net } from "./net.js";
+
+// player-tunable accessibility settings (SDD §2.11) — main.js loads/saves
+export const settings = { shake: 1, flash: true, floor: 0, volume: 0.25 };
 
 let canvas, ctx, W = 0, H = 0, dpr = 1;
 let scale = 1, offX = 0, offY = 0;
 let trauma = 0, hitstopT = 0, gridPulse = 0, bombFlashT = 0;
 let shakeX = 0, shakeY = 0;
+let lightCanvas = null, lightCtx = null;
 
 const glowCache = new Map();
 const MAX_PARTICLES = 1500;
@@ -108,7 +112,7 @@ export function draw(dt) {
   ctx.fillStyle = "#05020c";
   ctx.fillRect(0, 0, W, H);
 
-  const sh = trauma * trauma * 22;
+  const sh = trauma * trauma * 22 * settings.shake;
   shakeX = (Math.random() - 0.5) * sh; shakeY = (Math.random() - 0.5) * sh;
   ctx.translate(offX + shakeX, offY + shakeY);
   ctx.scale(scale, scale);
@@ -117,22 +121,100 @@ export function draw(dt) {
   drawZones(dt);
   drawBullets(dt);
   drawEnemies();
+  drawLasers();
   drawPlayers();
   drawParticles(dt);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // screen space
+  drawTheDark();
   drawPopups(dt);
   drawHUD();
 
-  if (bombFlashT > 0) {
+  if (bombFlashT > 0 && settings.flash) {
     ctx.fillStyle = `rgba(255,255,255,${bombFlashT * 1.6})`;
     ctx.fillRect(0, 0, W, H);
   }
   if (world.overdrive) {
-    const p = 0.25 + 0.15 * Math.sin(performance.now() / 90);
+    const p = settings.flash ? 0.25 + 0.15 * Math.sin(performance.now() / 90) : 0.3;
     ctx.strokeStyle = `rgba(255,228,91,${p})`;
     ctx.lineWidth = 10;
     ctx.strokeRect(5, 5, W - 10, H - 10);
+  }
+}
+
+// ---------- the dark (SDD §2.4): light lives where your fire is ----------
+function darknessLevel() {
+  let d = 0;
+  if (world.wave >= WAVE.DARK_START) d = Math.min(0.78, (world.wave - WAVE.DARK_START + 1) * 0.13);
+  for (const e of world.enemies) {
+    if (e.kind === EK.ULTRADARK) d = e.flags & EF.ENRAGED ? 0.96 : 0.92;
+  }
+  return d * (1 - settings.floor);
+}
+
+function drawTheDark() {
+  const dark = darknessLevel();
+  if (dark <= 0.02) return;
+  const LS = 0.5; // lightmap at half resolution
+  const lw = Math.ceil(W * LS), lh = Math.ceil(H * LS);
+  if (!lightCanvas || lightCanvas.width !== lw || lightCanvas.height !== lh) {
+    lightCanvas = document.createElement("canvas");
+    lightCanvas.width = lw; lightCanvas.height = lh;
+    lightCtx = lightCanvas.getContext("2d");
+  }
+  const g = lightCtx;
+  g.globalCompositeOperation = "source-over";
+  g.clearRect(0, 0, lw, lh);
+  g.fillStyle = `rgba(2,1,8,${dark})`;
+  g.fillRect(0, 0, lw, lh);
+  g.globalCompositeOperation = "destination-out";
+  const spr = glow("#ffffff");
+  const punch = (wx, wy, r) => {
+    const sx = (wx * scale + offX + shakeX) * LS, sy = (wy * scale + offY + shakeY) * LS;
+    const s = r * scale * LS * 2;
+    g.drawImage(spr, sx - s / 2, sy - s / 2, s, s);
+  };
+  for (const p of world.players) {
+    if (p.state === PS.ALIVE || p.state === PS.DOWNED) {
+      punch(p.id === world.myId ? world.me.x : p.x, p.id === world.myId ? world.me.y : p.y, 170);
+    }
+  }
+  let lights = 0;
+  for (const b of world.bullets) { punch(b.x, b.y, 90); if (++lights > 220) break; }
+  for (const b of world.eBullets) { punch(b.x, b.y, 55); if (++lights > 380) break; }
+  for (const z of world.zones) {
+    if (z.kind === ZK.BLAST || z.kind === ZK.FLAME || z.kind === ZK.WELL) punch(z.x, z.y, z.r * 1.7);
+  }
+  for (const e of world.enemies) punch(e.x, e.y, ENEMIES[e.kind]?.boss ? 60 : 24); // eyes stay visible
+  ctx.drawImage(lightCanvas, 0, 0, W, H);
+}
+
+function drawLasers() {
+  const now = performance.now();
+  for (const l of world.lasers) {
+    if (l.firing) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.strokeStyle = "rgba(255,61,240,0.9)";
+      ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(l.sx, l.sy); ctx.lineTo(l.tx, l.ty); ctx.stroke();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.moveTo(l.sx, l.sy); ctx.lineTo(l.tx, l.ty); ctx.stroke();
+      ctx.globalCompositeOperation = "source-over";
+    } else {
+      const blink = Math.floor(now / 110) % 2 === 0 || !settings.flash;
+      ctx.strokeStyle = `rgba(255,61,240,${blink ? 0.55 : 0.25})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([14, 10]);
+      // telegraph extends through the lock point, arena-length (matches server)
+      const dx = l.tx - l.sx, dy = l.ty - l.sy;
+      const len = Math.hypot(dx, dy) || 1;
+      ctx.beginPath();
+      ctx.moveTo(l.sx, l.sy);
+      ctx.lineTo(l.sx + (dx / len) * 2600, l.sy + (dy / len) * 2600);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
 }
 
@@ -189,6 +271,18 @@ function drawZones(dt) {
         const rr = z.r * ((t + i / 3) % 1);
         ctx.beginPath(); ctx.arc(z.x, z.y, z.r - rr, 0, Math.PI * 2); ctx.stroke();
       }
+    } else if (z.kind === ZK.DARK) {
+      // the Shepherd's herding dark — get out before it bites
+      const grad = ctx.createRadialGradient(z.x, z.y, z.r * 0.2, z.x, z.y, z.r);
+      grad.addColorStop(0, "rgba(3,1,10,0.92)");
+      grad.addColorStop(1, "rgba(3,1,10,0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(194,107,250,0.5)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 10]);
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 }
@@ -211,20 +305,37 @@ function drawBullets() {
 
 function drawEnemies() {
   let boss = null;
+  // warden shield bubbles under everything (the order-of-kill puzzle, visible)
+  for (const e of world.enemies) {
+    const def = ENEMIES[e.kind];
+    if (def?.shieldR) {
+      ctx.strokeStyle = "rgba(143,180,255,0.35)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 8]);
+      ctx.beginPath(); ctx.arc(e.x, e.y, def.shieldR, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(143,180,255,0.05)";
+      ctx.fill();
+    }
+  }
   for (const e of world.enemies) {
     const def = ENEMIES[e.kind];
     if (!def) continue;
     if (def.boss) boss = { e, def };
     const enraged = e.flags & EF.ENRAGED;
-    const color = enraged ? "#ff4d4d" : def.color;
+    const phased = e.flags & EF.PHASED;
+    const open = e.flags & EF.OPEN;
+    const color = open ? "#ffffff" : enraged ? "#ff4d4d" : def.color;
+    if (phased) ctx.globalAlpha = 0.3;
     ctx.globalCompositeOperation = "lighter";
-    blit(glow(color), e.x, e.y, def.radius * 4);
+    blit(glow(color), e.x, e.y, def.radius * (open ? 5.5 : 4));
     ctx.globalCompositeOperation = "source-over";
     ctx.strokeStyle = color;
     ctx.fillStyle = "#0a0416";
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = open ? 4 : 2.5;
     shapePath(def.shape, e.x, e.y, def.radius, performance.now() / 1000 + e.id);
     ctx.fill(); ctx.stroke();
+    if (phased) ctx.globalAlpha = 1;
     // eyes stay visible (readable chaos)
     ctx.fillStyle = color;
     ctx.beginPath(); ctx.arc(e.x, e.y, Math.max(2.5, def.radius * 0.18), 0, Math.PI * 2); ctx.fill();
@@ -270,9 +381,36 @@ function shapePath(shape, x, y, r, t) {
       i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
     }
     ctx.closePath();
-  } else if (shape === "square") {
+  } else if (shape === "square" || shape === "block") {
     const s = r * 0.9;
     ctx.rect(x - s, y - s, s * 2, s * 2);
+  } else if (shape === "tri") {
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x - r * 0.7, y + r * 0.8);
+    ctx.lineTo(x - r * 0.7, y - r * 0.8);
+    ctx.closePath();
+  } else if (shape === "pent") {
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i / 5) * Math.PI * 2;
+      const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
+      i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+    }
+    ctx.closePath();
+  } else if (shape === "ring") {
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.moveTo(x + r * 0.55, y);
+    ctx.arc(x, y, r * 0.55, 0, Math.PI * 2, true);
+  } else if (shape === "crescent") {
+    ctx.arc(x, y, r, Math.PI * 0.25, Math.PI * 1.75);
+    ctx.quadraticCurveTo(x + r * 0.2, y, x + Math.cos(Math.PI * 0.25) * r, y + Math.sin(Math.PI * 0.25) * r);
+  } else if (shape === "ghost") {
+    ctx.arc(x, y, r, Math.PI, 0);
+    ctx.lineTo(x + r, y + r * 0.8);
+    ctx.lineTo(x + r * 0.5, y + r * 0.5);
+    ctx.lineTo(x, y + r * 0.9);
+    ctx.lineTo(x - r * 0.5, y + r * 0.5);
+    ctx.lineTo(x - r, y + r * 0.8);
+    ctx.closePath();
   }
 }
 
@@ -403,8 +541,9 @@ function drawHUD() {
   ctx.fillStyle = "#8fa3c8";
   if (world.phase === PHASE.WAVE) ctx.fillText(`${world.enemiesLeft} HOSTILES`, W - pad, 50);
   if (net.rttMs) ctx.fillText(`${net.rttMs}ms`, W - pad, H - 10);
-  // hp pips (bottom left)
-  for (let i = 0; i < PLAYER.MAX_HP; i++) {
+  // hp pips (bottom left) — max grows with Plating/Turtle mods
+  const pips = myHpMax();
+  for (let i = 0; i < pips; i++) {
     ctx.fillStyle = i < world.myHp ? "#ff5b6e" : "rgba(255,255,255,0.15)";
     ctx.fillRect(pad + i * 26, H - 30, 20, 14);
   }

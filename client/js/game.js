@@ -18,6 +18,7 @@ export const world = {
   mult: 1, unbanked: 0, banked: 0, enemiesLeft: 0,
   players: [], enemies: [], bullets: [], zones: [], // interpolated view
   eBullets: [],                                      // client-simmed pattern bullets
+  lasers: [],                                        // sniper telegraphs & beams
   me: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0, alive: true },
   myPilot: 0, myMods: [], myStats: computeStats(PILOTS[0], []),
   myHp: 3, myBombs: 1, myDashCd: 0, myAbilCd: 0, myState: PS.ALIVE,
@@ -73,6 +74,10 @@ export function frame(dt, input) {
     stepPlayerMovement(world.me, { mx: input.mx, my: input.my }, world.myStats, dt);
   }
 
+  // --- lasers expire ---
+  const now = performance.now();
+  world.lasers = world.lasers.filter(l => l.until > now);
+
   // --- pattern bullets (deterministic, visual) ---
   const eb = world.eBullets;
   for (let i = eb.length - 1; i >= 0; i--) {
@@ -110,6 +115,18 @@ export function handleEvent(ev) {
   if (ev.t === "pattern") {
     const bullets = spawnPattern(ev.pid, ev.seed, ev.x, ev.y, ev.angle);
     for (const b of bullets) world.eBullets.push(b);
+    if (world.eBullets.length > 1400) world.eBullets.splice(0, world.eBullets.length - 1400);
+  } else if (ev.t === "laser_warn") {
+    world.lasers.push({
+      id: ev.id, sx: ev.sx, sy: ev.sy, tx: ev.tx, ty: ev.ty,
+      firing: false, until: performance.now() + ev.s * 1000 + 60,
+    });
+  } else if (ev.t === "laser_fire") {
+    world.lasers = world.lasers.filter(l => l.id !== ev.id);
+    world.lasers.push({
+      id: ev.id, sx: ev.sx, sy: ev.sy, tx: ev.tx, ty: ev.ty,
+      firing: true, until: performance.now() + 170,
+    });
   } else if (ev.t === "bomb") {
     world.eBullets.length = 0;
   } else if (ev.t === "picked" && ev.who === world.myId) {
@@ -117,8 +134,11 @@ export function handleEvent(ev) {
     world.myStats = computeStats(PILOTS[world.myPilot], world.myMods);
   } else if (ev.t === "wave_start" || ev.t === "gameover" || ev.t === "victory") {
     world.eBullets.length = 0;
+    world.lasers.length = 0;
   }
 }
+
+export function myHpMax() { return Math.max(1, 3 + (world.myStats.maxHp | 0)); }
 
 let uiBlock = false;
 export function setUiBlocking(b) { uiBlock = b; }

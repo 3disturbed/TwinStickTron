@@ -9,8 +9,9 @@ import { world, onSnapshot, handleEvent, resetForRun, inGame } from "./game.js";
 import * as game from "./game.js";
 import { initInput, pollInput } from "./input.js";
 import * as R from "./render.js";
+import { settings } from "./render.js";
 import * as UI from "./ui.js";
-import { ensureAudio, sfx } from "./audio.js";
+import { ensureAudio, sfx, setVolume } from "./audio.js";
 
 const canvas = document.getElementById("game");
 R.initRender(canvas);
@@ -22,6 +23,47 @@ const joinCode = (location.pathname.match(/^\/j\/([A-Za-z0-9]{4,8})/) || [])[1]?
 const saved = JSON.parse(localStorage.getItem("ultradark") ?? "{}");
 world.myPilot = saved.pilot ?? 0;
 UI.initMenu(joinCode, { name: saved.name, pilot: world.myPilot });
+
+// ---------- settings (SDD §2.11), persisted ----------
+Object.assign(settings, JSON.parse(localStorage.getItem("ultradark-settings") ?? "{}"));
+setVolume(settings.volume);
+UI.bindSettings(settings, () => {
+  localStorage.setItem("ultradark-settings", JSON.stringify(settings));
+  setVolume(settings.volume);
+});
+
+function leaveOverlay() { // where DONE/BACK returns to
+  if (net.connected && world.phase === PHASE.LOBBY) UI.showScreen("screen-lobby");
+  else if (net.connected && inGame()) UI.hideScreens();
+  else UI.showScreen("screen-menu");
+}
+document.getElementById("btn-settings").onclick = () => { ensureAudio(); UI.openSettings(settings); };
+document.getElementById("btn-settings-done").onclick = leaveOverlay;
+document.getElementById("btn-lb-done").onclick = leaveOverlay;
+document.getElementById("btn-lb").onclick = () => {
+  UI.openLeaderboard(async (mode, period) => {
+    try {
+      const q = mode === "daily" ? "mode=daily" : `mode=run&period=${period}`;
+      const data = await fetch(`/api/leaderboard?${q}`).then(r => r.json());
+      UI.renderLeaderboard(data.top ?? []);
+    } catch { UI.renderLeaderboard([]); }
+  });
+};
+document.getElementById("btn-daily").onclick = async () => {
+  ensureAudio(); persist();
+  pendingAutoStart = true;
+  UI.menuMessage("Summoning today's dark…");
+  try {
+    const r = await createRoom("daily");
+    world.code = r.code;
+    world.joinUrl = `${location.origin}/j/${r.code}`;
+    history.replaceState(null, "", `/j/${r.code}`);
+    UI.toast("🌑 DAILY DARK — same waves for everyone. First attempt counts.", 4200);
+    doConnect(r.code);
+  } catch {
+    UI.menuMessage("Could not start the daily. Retry?");
+  }
+};
 
 let pendingAutoStart = false;
 let prevPhase = PHASE.LOBBY;
@@ -141,9 +183,19 @@ net.onEvent = (ev) => {
     case "nova": R.addTrauma(0.2); break;
     case "downed":
       UI.banner(ev.who === world.myId ? "YOU ARE DOWN" : `${nameOf(ev.who)} IS DOWN`, true, 2200);
+      if (ev.who === world.myId && ev.cause) UI.toast(`☠ Killed by ${ev.cause}`, 3200); // death recap
       sfx.down();
       R.addTrauma(0.5);
       break;
+    case "leech":
+      if (ev.who === world.myId) {
+        R.fxPopup(world.me.x, world.me.y, "MULTIPLIER DRAINED", "#5bffc9");
+        R.addTrauma(0.15);
+      }
+      break;
+    case "laser_warn": case "laser_fire": break; // game.handleEvent stores them
+    case "doors": if (ev.open) UI.banner("FOUNDRY DOORS OPEN — HIT IT NOW", true, 1400); break;
+    case "streak": if (ev.who === world.myId) { UI.toast("🔥 KILL STREAK — +1 BOMB"); } break;
     case "revived":
       if (!ev.solo) UI.toast(ev.cost > 0 ? `Revived — insurance cost ${ev.cost.toLocaleString("en-US")} banked` : "Revived!");
       sfx.revive();

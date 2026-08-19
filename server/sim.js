@@ -10,26 +10,28 @@ import { stepPlayerMovement, startDash } from "../shared/movement.js";
 import { spawnPattern, PT } from "../shared/patterns.js";
 import { ENEMIES } from "../shared/enemies.js";
 import { computeStats, draftOffer, modById } from "../shared/mods.js";
+import { mulberry32 } from "../shared/rng.js";
 import { BTN, PF, EF } from "../shared/protocol.js";
 import { makeWave, bossHp } from "./waves.js";
 
 const PATTERN_IDS = { RING: PT.RING, FAN: PT.FAN, SPOKES: PT.SPOKES, ORB: PT.ORB };
+const E_BULLET_CAP = 1200;
 
 export class Sim {
   constructor() {
     this.phase = PHASE.LOBBY;
     this.tick = 0;
     this.wave = 0;
-    this.phaseT = 0;              // seconds left in current phase (intermission)
-    this.players = new Map();     // id -> player
-    this.enemies = new Map();     // id -> enemy
+    this.phaseT = 0;
+    this.players = new Map();
+    this.enemies = new Map();
     this.pBullets = [];
     this.eBullets = [];
     this.zones = [];
-    this.events = [];             // drained by Room every tick
-    this.script = null;           // current wave spawn timeline
+    this.events = [];
+    this.script = null;
     this.scriptT = 0;
-    this.pending = [];            // warp-in spawns
+    this.pending = [];
     this.mult = 1;
     this.sinceKill = 999;
     this.unbanked = 0;
@@ -37,8 +39,12 @@ export class Sim {
     this.bestMult = 1;
     this.eid = 1;
     this.bid = 1;
-    this.offers = new Map();      // playerId -> [modId,modId,modId] during draft
+    this.offers = new Map();
+    this.dailySeed = null;   // set for Daily Dark rooms — waves become deterministic
+    this._wardens = [];
   }
+
+  hpMax(p) { return Math.max(1, PLAYER.MAX_HP + (p.stats.maxHp | 0)); }
 
   // ---------- roster ----------
   addPlayer(id, name, pilot) {
@@ -47,9 +53,10 @@ export class Sim {
       x: ARENA_W / 2 + (id - 2) * 60, y: ARENA_H / 2, vx: 0, vy: 0,
       aim: 0, hp: PLAYER.MAX_HP, state: this.phase === PHASE.WAVE ? PS.SPECTATING : PS.ALIVE,
       mods: [], stats: computeStats(PILOTS[pilot], []),
-      dashT: 0, dashCd: 0, dashCharges: 1, fireCd: 0, abilCd: 0,
+      dashT: 0, dashCd: 0, dashStock: 1, fireCd: 0, abilCd: 0,
       iframesT: 0, bombs: PLAYER.START_BOMBS, lives: PLAYER.SOLO_LIVES,
       downedT: 0, reviveP: 0, respawnT: 0, beingRevived: false,
+      dashDmgT: 0, rageT: 0, staticT: 2.2, lastCause: "",
       buttonsPrev: 0, input: { seq: 0, mx: 0, my: 0, ax: 0, ay: 0, buttons: 0 },
       kills: 0, picked: true,
     };
@@ -74,24 +81,31 @@ export class Sim {
     this.zones.length = 0; this.pending.length = 0;
     let i = 0;
     for (const p of this.players.values()) {
-      p.state = PS.ALIVE; p.hp = PLAYER.MAX_HP; p.mods = [];
+      p.state = PS.ALIVE; p.mods = [];
       p.stats = computeStats(PILOTS[p.pilot], []);
+      p.hp = this.hpMax(p);
       p.bombs = PLAYER.START_BOMBS; p.lives = PLAYER.SOLO_LIVES; p.kills = 0;
       p.x = ARENA_W / 2 + (i++ - this.players.size / 2) * 70; p.y = ARENA_H / 2;
-      p.vx = p.vy = 0; p.dashCd = 0; p.abilCd = 0; p.iframesT = 2;
+      p.vx = p.vy = 0; p.dashCd = 0; p.dashStock = p.stats.dashCharges; p.abilCd = 0; p.iframesT = 2;
+      p.dashDmgT = 0; p.rageT = 0;
     }
     this.startWave(1);
+  }
+
+  waveRng(n) {
+    if (this.dailySeed == null) return Math.random;
+    return mulberry32(((this.dailySeed >>> 0) ^ Math.imul(n, 2654435761)) >>> 0);
   }
 
   startWave(n) {
     this.wave = n;
     this.phase = PHASE.WAVE;
-    this.script = makeWave(n, Math.max(1, this.activeCount()));
+    this.script = makeWave(n, Math.max(1, this.activeCount()), this.waveRng(n));
     this.scriptT = 0;
     this.offers.clear();
     for (const p of this.players.values()) {
       if (p.state === PS.OUT || p.state === PS.SPECTATING || p.state === PS.DOWNED) {
-        p.state = PS.ALIVE; p.hp = 2; p.iframesT = 2;
+        p.state = PS.ALIVE; p.hp = Math.min(2, this.hpMax(p)); p.iframesT = 2;
         p.x = ARENA_W / 2; p.y = ARENA_H / 2;
       }
       p.picked = true;
@@ -107,10 +121,9 @@ export class Sim {
     this.phase = PHASE.INTERMISSION;
     this.phaseT = WAVE.INTERMISSION_S;
     this.eBullets.length = 0;
-    // post-boss perks (SDD slice): heal 1, +1 bomb
     if (this.wave % WAVE.BOSS_EVERY === 0) {
       for (const p of this.players.values()) {
-        if (p.state === PS.ALIVE) p.hp = Math.min(PLAYER.MAX_HP, p.hp + 1);
+        if (p.state === PS.ALIVE) p.hp = Math.min(this.hpMax(p), p.hp + 1);
         p.bombs = Math.min(PLAYER.MAX_BOMBS, p.bombs + 1);
       }
     }
@@ -129,8 +142,9 @@ export class Sim {
     if (a.t === "start" && this.phase === PHASE.LOBBY) { this.startRun(); return; }
     if (a.t === "again" && (this.phase === PHASE.GAMEOVER || this.phase === PHASE.VICTORY)) { this.startRun(); return; }
     if (a.t === "bank" && this.phase === PHASE.INTERMISSION && this.unbanked > 0) {
-      this.banked += this.unbanked;
-      this.emit({ t: "bank", amount: this.unbanked, by: p.id });
+      const bonus = Math.round(this.unbanked * 0.05 * (p.stats.interest || 0));
+      this.banked += this.unbanked + bonus;
+      this.emit({ t: "bank", amount: this.unbanked, bonus, by: p.id });
       this.unbanked = 0;
       return;
     }
@@ -139,6 +153,10 @@ export class Sim {
       if (offer.includes(a.id)) {
         p.mods.push(a.id);
         p.stats = computeStats(PILOTS[p.pilot], p.mods);
+        const mod = modById(a.id);
+        if (mod?.heal) p.hp += mod.heal;
+        p.hp = Math.max(1, Math.min(this.hpMax(p), p.hp));
+        p.dashStock = Math.min(p.stats.dashCharges, p.dashStock + (p.stats.dashCharges > 1 ? 1 : 0));
         p.picked = true;
         this.emit({ t: "picked", who: p.id, mod: a.id });
         let all = true;
@@ -180,19 +198,16 @@ export class Sim {
     this.stepOrbitals(dt);
     this.stepZones(dt);
     this.stepReviveAndRespawn(dt);
-    // multiplier decay
     this.sinceKill += dt;
     if (this.sinceKill > MULT.DECAY_GRACE && this.mult > 1) {
       this.mult = Math.max(1, this.mult - MULT.DECAY_PER_S * dt);
     }
-    // wave end
     if (this.scriptDone() && this.enemies.size === 0 && this.pending.length === 0) {
       this.emit({ t: "wave_end", wave: this.wave });
       if (this.wave >= WAVE.MAX) this.endRun(true);
       else this.beginIntermission();
       return;
     }
-    // wipe
     let anyAlive = false;
     for (const p of this.players.values()) if (p.state === PS.ALIVE) anyAlive = true;
     if (!anyAlive && this.activeCount() > 0) this.endRun(false);
@@ -206,24 +221,35 @@ export class Sim {
     this.emit({
       t: victory ? "victory" : "gameover",
       score: this.banked, lost, wave: this.wave, bestMult: Math.round(this.bestMult * 10) / 10,
-      roster,
+      roster, daily: this.dailySeed != null,
     });
   }
 
   // ---------- players ----------
+  dashCooldown(p) {
+    return Math.max(0.6, PLAYER.DASH_CD + (p.stats.dashPenalty ?? 0) - (p.stats.dashBonus ?? 0));
+  }
+
   stepPlayers(dt, combat) {
     for (const p of this.players.values()) {
       if (p.state !== PS.ALIVE) continue;
       const inp = p.input;
       const btn = inp.buttons, prev = p.buttonsPrev;
-      // aim
       if (Math.hypot(inp.ax, inp.ay) > 0.25) p.aim = Math.atan2(inp.ay, inp.ax);
-      // dash (edge)
-      p.dashCd = Math.max(0, p.dashCd - dt);
-      if ((btn & BTN.DASH) && !(prev & BTN.DASH) && p.dashCd <= 0) {
+      // dash charges: cooldown refills the stock (SDD §2.2 + Twin Dash mod)
+      if (p.dashStock < p.stats.dashCharges) {
+        p.dashCd -= dt;
+        if (p.dashCd <= 0) {
+          p.dashStock++;
+          p.dashCd = p.dashStock < p.stats.dashCharges ? this.dashCooldown(p) : 0;
+        }
+      }
+      if ((btn & BTN.DASH) && !(prev & BTN.DASH) && p.dashStock > 0 && p.dashT <= 0) {
         startDash(p, { mx: inp.mx, my: inp.my });
-        p.dashCd = PLAYER.DASH_CD + (p.stats.dashPenalty ?? 0);
+        if (p.dashStock === p.stats.dashCharges) p.dashCd = this.dashCooldown(p);
+        p.dashStock--;
         p.iframesT = Math.max(p.iframesT, PLAYER.DASH_IFRAMES);
+        p.dashDmgT = 1;
         if (p.stats.nova > 0 && combat) this.novaBurst(p);
         this.emit({ t: "dash", who: p.id });
       }
@@ -231,16 +257,32 @@ export class Sim {
       p.iframesT = Math.max(0, p.iframesT - dt);
       p.fireCd = Math.max(0, p.fireCd - dt);
       p.abilCd = Math.max(0, p.abilCd - dt);
-      // fire
+      p.dashDmgT = Math.max(0, p.dashDmgT - dt);
+      p.rageT = Math.max(0, p.rageT - dt);
       if ((btn & BTN.FIRE) && p.fireCd <= 0) {
         this.fire(p);
-        p.fireCd = PLAYER.FIRE_CD / p.stats.fire;
+        const rate = p.stats.fire * (p.rageT > 0 ? 1 + 0.5 * p.stats.rage : 1);
+        p.fireCd = PLAYER.FIRE_CD / rate;
       }
       if (combat) {
-        // bomb (edge)
         if ((btn & BTN.BOMB) && !(prev & BTN.BOMB) && p.bombs > 0) this.smartBomb(p);
-        // ability (edge)
         if ((btn & BTN.ABILITY) && !(prev & BTN.ABILITY) && p.abilCd <= 0) this.ability(p);
+        // Static Coil: periodic zap on the nearest enemy
+        if (p.stats.static > 0) {
+          p.staticT -= dt;
+          if (p.staticT <= 0) {
+            p.staticT = 2.2;
+            let tgt = null, td = 180;
+            for (const e of this.enemies.values()) {
+              const d = Math.hypot(e.x - p.x, e.y - p.y);
+              if (d < td) { td = d; tgt = e; }
+            }
+            if (tgt) {
+              this.zones.push({ kind: ZK.BLAST, x: tgt.x, y: tgt.y, r: 26, ttl: 0.2 });
+              this.damageEnemy(tgt, 2 * p.stats.static, p);
+            }
+          }
+        }
       }
       p.buttonsPrev = btn;
     }
@@ -249,6 +291,7 @@ export class Sim {
   fire(p) {
     const n = 1 + p.stats.split;
     const speed = PLAYER.BULLET_SPEED * p.stats.bulletSpeed;
+    const dmg = p.stats.dmg * (p.dashDmgT > 0 && p.stats.dashDmg > 0 ? 1 + 0.3 * p.stats.dashDmg : 1);
     for (let i = 0; i < n; i++) {
       const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.14;
       const a = p.aim + off;
@@ -256,8 +299,8 @@ export class Sim {
         id: this.bid = (this.bid % 65000) + 1,
         x: p.x + Math.cos(a) * 18, y: p.y + Math.sin(a) * 18,
         vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-        dmg: p.stats.dmg, pierce: p.stats.pierce, ricochet: p.stats.ricochet,
-        life: PLAYER.BULLET_LIFE, owner: p.id,
+        dmg, pierce: p.stats.pierce, ricochet: p.stats.ricochet,
+        life: PLAYER.BULLET_LIFE * p.stats.bulletLife, owner: p.id,
       });
     }
   }
@@ -266,8 +309,7 @@ export class Sim {
     p.bombs--;
     this.eBullets.length = 0;
     for (const e of this.enemies.values()) {
-      if (e.warpT > 0) continue;
-      this.damageEnemy(e, e.def.boss ? 4 : 2, p);
+      this.damageEnemy(e, (e.def.boss ? 4 : 2) + (p.stats.bombPower | 0), p);
     }
     this.emit({ t: "bomb", who: p.id, x: p.x, y: p.y });
   }
@@ -302,22 +344,23 @@ export class Sim {
 
   novaBurst(p) {
     for (const e of this.enemies.values()) {
-      if (e.warpT > 0) continue;
       const d = Math.hypot(e.x - p.x, e.y - p.y);
       if (d < 140) this.damageEnemy(e, p.stats.nova, p);
     }
     this.emit({ t: "nova", x: p.x, y: p.y });
   }
 
-  applyPlayerHit(p, dmg) {
+  applyPlayerHit(p, dmg, cause = "CONTACT") {
     if (p.state !== PS.ALIVE || p.iframesT > 0) return;
     let shielded = false;
     for (const z of this.zones) {
       if (z.kind === ZK.AEGIS && Math.hypot(p.x - z.x, p.y - z.y) < z.r) { shielded = true; break; }
     }
-    if (!shielded) this.mult = Math.max(1, this.mult * MULT.HIT_FACTOR);
+    if (!shielded) this.mult = Math.max(1, this.mult * p.stats.hitFactor);
     p.hp -= dmg;
-    p.iframesT = PLAYER.HIT_IFRAMES;
+    p.iframesT = PLAYER.HIT_IFRAMES * p.stats.iframeBonus;
+    if (p.stats.rage > 0) p.rageT = 3;
+    p.lastCause = cause;
     this.emit({ t: "hurt", who: p.id, hp: p.hp });
     if (p.hp <= 0) this.downPlayer(p);
   }
@@ -325,35 +368,35 @@ export class Sim {
   downPlayer(p) {
     if (this.isSolo() || this.activeCount() === 1) {
       p.lives--;
-      if (p.lives >= 0) { // solo: burn a life, respawn shortly
+      if (p.lives >= 0) {
         p.state = PS.DOWNED; p.respawnT = 2; p.downedT = 0;
-        this.emit({ t: "downed", who: p.id, solo: true, lives: p.lives });
+        this.emit({ t: "downed", who: p.id, solo: true, lives: p.lives, cause: p.lastCause });
       } else {
         p.state = PS.OUT;
-        this.emit({ t: "downed", who: p.id, solo: true, lives: 0 });
+        this.emit({ t: "downed", who: p.id, solo: true, lives: 0, cause: p.lastCause });
       }
     } else {
       p.state = PS.DOWNED; p.downedT = PLAYER.DOWNED_TIMEOUT; p.reviveP = 0;
-      this.emit({ t: "downed", who: p.id, solo: false });
+      this.emit({ t: "downed", who: p.id, solo: false, cause: p.lastCause });
     }
   }
 
   stepReviveAndRespawn(dt) {
     for (const p of this.players.values()) {
       if (p.state !== PS.DOWNED) continue;
-      if (p.respawnT > 0) { // solo respawn
+      if (p.respawnT > 0) {
         p.respawnT -= dt;
         if (p.respawnT <= 0) {
-          p.state = PS.ALIVE; p.hp = PLAYER.MAX_HP; p.iframesT = 2;
+          p.state = PS.ALIVE; p.hp = this.hpMax(p); p.iframesT = 2;
           p.x = ARENA_W / 2; p.y = ARENA_H / 2; p.vx = p.vy = 0;
           this.emit({ t: "revived", who: p.id, solo: true });
         }
         continue;
       }
-      // co-op core revive
       let reviver = null;
       for (const q of this.players.values()) {
-        if (q.state === PS.ALIVE && Math.hypot(q.x - p.x, q.y - p.y) < PLAYER.REVIVE_RANGE) {
+        if (q.state === PS.ALIVE &&
+            Math.hypot(q.x - p.x, q.y - p.y) < PLAYER.REVIVE_RANGE * q.stats.reviveRange) {
           if (!reviver || q.stats.reviveSpeed > reviver.stats.reviveSpeed) reviver = q;
         }
       }
@@ -363,7 +406,7 @@ export class Sim {
         if (p.reviveP >= 1) {
           const cost = Math.min(this.banked, REVIVE_COST_PER_WAVE * this.wave);
           this.banked -= cost;
-          p.state = PS.ALIVE; p.hp = 2; p.iframesT = 2; p.reviveP = 0;
+          p.state = PS.ALIVE; p.hp = Math.min(2, this.hpMax(p)); p.iframesT = 2; p.reviveP = 0;
           this.emit({ t: "revived", who: p.id, by: reviver.id, cost });
         }
       } else {
@@ -403,8 +446,14 @@ export class Sim {
       if (d >= WAVE.SPAWN_MIN_DIST) { best = { x, y }; break; }
       if (d > bestD) { bestD = d; best = { x, y }; }
     }
-    this.pending.push({ kind, x: best.x, y: best.y, t: WAVE.WARP_IN_S });
-    this.zones.push({ kind: ZK.WARP, x: best.x, y: best.y, r: ENEMIES[kind].radius + 10, ttl: WAVE.WARP_IN_S });
+    this.pendingAt(kind, best.x, best.y);
+  }
+
+  pendingAt(kind, x, y) {
+    x = clamp(x, WALL_PAD, ARENA_W - WALL_PAD);
+    y = clamp(y, WALL_PAD, ARENA_H - WALL_PAD);
+    this.pending.push({ kind, x, y, t: WAVE.WARP_IN_S });
+    this.zones.push({ kind: ZK.WARP, x, y, r: ENEMIES[kind].radius + 10, ttl: WAVE.WARP_IN_S });
   }
 
   spawnEnemy(kind, x, y, isBoss) {
@@ -418,7 +467,16 @@ export class Sim {
       fireT: (def.fireEvery ?? 0) * (0.5 + Math.random() * 0.5),
       wanderT: 0, wanderA: Math.random() * Math.PI * 2,
       sinePhase: Math.random() * Math.PI * 2, t: 0,
-      warpT: isBoss ? 0 : 0, enraged: false, spokeAngle: Math.random() * Math.PI * 2,
+      enraged: false, spokeAngle: Math.random() * Math.PI * 2,
+      contactCd: 0,
+      // sniper
+      aiming: false, aimT: 0, lockX: 0, lockY: 0,
+      // ghost
+      phased: def.ai === "ghost", phaseT: (def.phaseTime ?? 0) * (0.5 + Math.random()), windowT: 0,
+      // forge / foundry
+      spawnT: def.spawnEvery ?? 0, doorOpen: false, doorT: def.doorClosed ?? 0,
+      // shepherd / ultra
+      darkT: def.darkEvery ?? 0, fireMode: 0,
     };
     this.enemies.set(e.id, e);
   }
@@ -434,18 +492,25 @@ export class Sim {
     return best;
   }
 
+  seekVel(e, target, mul = 1) {
+    const d = Math.hypot(target.x - e.x, target.y - e.y) || 1;
+    const sp = e.speed * mul * (e.enraged ? 1.8 : 1);
+    e.vx = ((target.x - e.x) / d) * sp; e.vy = ((target.y - e.y) / d) * sp;
+  }
+
   stepEnemies(dt) {
+    this._wardens.length = 0;
+    for (const e of this.enemies.values()) if (e.def.ai === "warden") this._wardens.push(e);
+
     for (const e of this.enemies.values()) {
       e.t += dt;
+      e.contactCd = Math.max(0, e.contactCd - dt);
       const def = e.def;
       const target = this.nearestAlive(e.x, e.y);
       const ai = def.ai;
-      if (ai === "seek" || ai === "boss_brute") {
-        if (target) {
-          const d = Math.hypot(target.x - e.x, target.y - e.y) || 1;
-          const sp = e.speed * (e.enraged ? 1.8 : 1);
-          e.vx = ((target.x - e.x) / d) * sp; e.vy = ((target.y - e.y) / d) * sp;
-        }
+
+      if (ai === "seek" || ai === "boss_brute" || ai === "leech") {
+        if (target) this.seekVel(e, target);
       } else if (ai === "weave") {
         if (target) {
           const d = Math.hypot(target.x - e.x, target.y - e.y) || 1;
@@ -461,45 +526,170 @@ export class Sim {
       } else if (ai === "mortar") {
         const cx = ARENA_W / 2, cy = ARENA_H / 2;
         e.vx = (cx - e.x) * 0.02; e.vy = (cy - e.y) * 0.02;
+      } else if (ai === "sniper") {
+        // hold a standoff band; freeze while aiming
+        if (e.aiming) { e.vx = e.vy = 0; }
+        else if (target) {
+          const d = Math.hypot(target.x - e.x, target.y - e.y);
+          if (d < 480) this.seekVel(e, target, -1);
+          else if (d > 780) this.seekVel(e, target, 0.6);
+          else { e.vx *= 0.9; e.vy *= 0.9; }
+        }
+      } else if (ai === "warden") {
+        // shepherd the nearest non-warden enemy; drift centre-ward alone
+        let ward = null, wd = Infinity;
+        for (const o of this.enemies.values()) {
+          if (o === e || o.def.ai === "warden" || o.def.boss) continue;
+          const d = Math.hypot(o.x - e.x, o.y - e.y);
+          if (d < wd) { wd = d; ward = o; }
+        }
+        const goal = ward ?? { x: ARENA_W / 2, y: ARENA_H / 2 };
+        this.seekVel(e, goal, 0.9);
+      } else if (ai === "forge") {
+        e.vx = e.vy = 0;
+        e.spawnT -= dt;
+        if (e.spawnT <= 0) {
+          e.spawnT = def.spawnEvery;
+          const kinds = this.wave >= 8 ? [EK.MITE, EK.DRONE, EK.WEAVER] : [EK.MITE, EK.DRONE];
+          for (let i = 0; i < 2; i++) {
+            const a = Math.random() * Math.PI * 2;
+            this.pendingAt(kinds[Math.floor(Math.random() * kinds.length)],
+              e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70);
+          }
+        }
+      } else if (ai === "ghost") {
+        if (e.phased) {
+          e.phaseT -= dt;
+          if (target) this.seekVel(e, target, 1.2);
+          if (e.phaseT <= 0) {
+            e.phased = false; e.windowT = def.windowTime;
+            if (target) {
+              const a = Math.atan2(target.y - e.y, target.x - e.x);
+              this.emitPattern(PT.FAN, e.x, e.y, a, def.name);
+            }
+          }
+        } else {
+          e.windowT -= dt;
+          e.vx *= 0.9; e.vy *= 0.9;
+          if (e.windowT <= 0) { e.phased = true; e.phaseT = def.phaseTime; }
+        }
+      } else if (ai === "magnet") {
+        if (target) this.seekVel(e, target, 0.8);
+        for (const p of this.players.values()) {
+          if (p.state !== PS.ALIVE) continue;
+          const d = Math.hypot(p.x - e.x, p.y - e.y);
+          if (d < def.pullR && d > 40) {
+            p.x += ((e.x - p.x) / d) * def.pull * dt;
+            p.y += ((e.y - p.y) / d) * def.pull * dt;
+          }
+        }
       } else if (ai === "boss_hex") {
         const cx = ARENA_W / 2, cy = ARENA_H / 2;
         e.vx = (cx - e.x) * 0.05; e.vy = (cy - e.y) * 0.05;
+      } else if (ai === "boss_foundry") {
+        const cx = ARENA_W / 2, cy = ARENA_H * 0.3;
+        e.vx = (cx - e.x) * 0.02; e.vy = (cy - e.y) * 0.02;
+        e.doorT -= dt;
+        if (!e.doorOpen && e.doorT <= 0) {
+          e.doorOpen = true; e.doorT = def.doorOpen;
+          this.emit({ t: "doors", id: e.id, open: true });
+          for (let i = 0; i < def.spawnCount; i++) {
+            const a = (i / def.spawnCount) * Math.PI * 2;
+            const kinds = [EK.MITE, EK.DRONE, EK.WEAVER];
+            this.pendingAt(kinds[i % kinds.length], e.x + Math.cos(a) * 110, e.y + Math.sin(a) * 110);
+          }
+        } else if (e.doorOpen && e.doorT <= 0) {
+          e.doorOpen = false; e.doorT = def.doorClosed * (e.enraged ? 0.55 : 1);
+          this.emit({ t: "doors", id: e.id, open: false });
+        }
+      } else if (ai === "boss_shepherd") {
+        if (target) this.seekVel(e, target, 0.7);
+        e.darkT -= dt;
+        if (e.darkT <= 0) {
+          e.darkT = def.darkEvery * (e.enraged ? 0.6 : 1);
+          const victims = [...this.players.values()].filter(p => p.state === PS.ALIVE);
+          if (victims.length) {
+            const v = victims[Math.floor(Math.random() * victims.length)];
+            this.zones.push({
+              kind: ZK.DARK,
+              x: clamp(v.x + (Math.random() - 0.5) * 240, WALL_PAD, ARENA_W - WALL_PAD),
+              y: clamp(v.y + (Math.random() - 0.5) * 240, WALL_PAD, ARENA_H - WALL_PAD),
+              r: 240, ttl: 6, grace: 1.5, tickT: 0,
+            });
+          }
+        }
+      } else if (ai === "boss_ultra") {
+        if (target) this.seekVel(e, target, 0.6);
+        if (Math.floor(e.t / 7) > Math.floor((e.t - dt) / 7)) this.spawnAtEdge(EK.GHOST);
       }
+
       e.x = clamp(e.x + e.vx * dt, WALL_PAD, ARENA_W - WALL_PAD);
       e.y = clamp(e.y + e.vy * dt, WALL_PAD, ARENA_H - WALL_PAD);
 
-      // firing
-      if (def.fireEvery && target) {
+      // sniper aim/fire cycle (outside movement so freezing works)
+      if (ai === "sniper" && target) {
+        if (!e.aiming) {
+          e.fireT -= dt;
+          if (e.fireT <= 0) {
+            e.aiming = true; e.aimT = def.aimTime;
+            e.lockX = target.x; e.lockY = target.y;
+            this.emit({ t: "laser_warn", id: e.id, sx: Math.round(e.x), sy: Math.round(e.y), tx: Math.round(e.lockX), ty: Math.round(e.lockY), s: def.aimTime });
+          }
+        } else {
+          e.aimT -= dt;
+          if (e.aimT <= 0) {
+            e.aiming = false; e.fireT = def.fireEvery;
+            this.fireLaser(e);
+          }
+        }
+      }
+
+      // generic pattern firing
+      if (def.fireEvery && target && ai !== "sniper" && ai !== "ghost") {
         e.fireT -= dt;
         if (e.fireT <= 0) {
           e.fireT = def.fireEvery * (e.enraged ? 0.55 : 1);
           const aimA = Math.atan2(target.y - e.y, target.x - e.x);
-          if (ai === "weave" || (ai === "boss_brute" && e.enraged)) {
-            this.emitPattern(PT.FAN, e.x, e.y, aimA);
+          if (ai === "weave" || (ai === "boss_brute" && e.enraged) || ai === "boss_shepherd") {
+            this.emitPattern(PT.FAN, e.x, e.y, aimA, def.name);
           } else if (ai === "mortar") {
-            this.zones.push({ kind: ZK.MORTAR_TELE, x: target.x, y: target.y, r: def.shellRadius, ttl: def.shellDelay, dmgPlayers: true });
+            this.zones.push({ kind: ZK.MORTAR_TELE, x: target.x, y: target.y, r: def.shellRadius, ttl: def.shellDelay });
           } else if (ai === "boss_brute") {
-            this.emitPattern(PT.RING, e.x, e.y, 0);
+            this.emitPattern(PT.RING, e.x, e.y, 0, def.name);
           } else if (ai === "boss_hex") {
             e.spokeAngle += e.enraged ? 0.52 : 0.35;
-            this.emitPattern(PT.SPOKES, e.x, e.y, e.spokeAngle);
+            this.emitPattern(PT.SPOKES, e.x, e.y, e.spokeAngle, def.name);
             if (Math.floor(e.t / 6) > Math.floor((e.t - dt) / 6)) {
               this.spawnAtEdge(EK.WEAVER); this.spawnAtEdge(EK.WEAVER);
             }
+          } else if (ai === "boss_ultra") {
+            const mode = e.fireMode++ % 3;
+            if (mode === 0) { e.spokeAngle += 0.4; this.emitPattern(PT.SPOKES, e.x, e.y, e.spokeAngle, def.name); }
+            else if (mode === 1) this.emitPattern(PT.FAN, e.x, e.y, aimA, def.name);
+            else this.emitPattern(PT.RING, e.x, e.y, 0, def.name);
           }
         }
       }
       if (def.boss && !e.enraged && e.hp <= e.maxHp * 0.5) {
         e.enraged = true;
-        this.emit({ t: "enrage", id: e.id });
+        this.emit({ t: "enrage", id: e.id, kind: e.kind });
       }
 
-      // contact damage
+      // contact
       for (const p of this.players.values()) {
         if (p.state !== PS.ALIVE) continue;
         const d = Math.hypot(p.x - e.x, p.y - e.y);
         if (d < def.radius + PLAYER.RADIUS) {
-          this.applyPlayerHit(p, 1);
+          if (ai === "leech") {
+            if (e.contactCd <= 0) {
+              e.contactCd = 1;
+              this.mult = Math.max(1, this.mult - def.drain);
+              this.emit({ t: "leech", who: p.id });
+            }
+          } else if (!(ai === "ghost" && e.phased)) {
+            this.applyPlayerHit(p, 1, def.name.toUpperCase());
+          }
+          if (p.stats.thorns > 0) this.damageEnemy(e, p.stats.thorns * 2, p);
           const push = 60 / (d || 1);
           e.x -= (p.x - e.x) * push * 0.2; e.y -= (p.y - e.y) * push * 0.2;
         }
@@ -507,10 +697,33 @@ export class Sim {
     }
   }
 
-  emitPattern(pid, x, y, angle) {
+  fireLaser(e) {
+    // instant beam from the sniper through its locked point, arena-length
+    const dx = e.lockX - e.x, dy = e.lockY - e.y;
+    const l = Math.hypot(dx, dy) || 1;
+    const ex = e.x + (dx / l) * 2600, ey = e.y + (dy / l) * 2600;
+    for (const p of this.players.values()) {
+      if (p.state !== PS.ALIVE) continue;
+      if (distToSegment(p.x, p.y, e.x, e.y, ex, ey) < PLAYER.RADIUS + 6) {
+        this.applyPlayerHit(p, 1, "SNIPER");
+      }
+    }
+    this.emit({ t: "laser_fire", id: e.id, sx: Math.round(e.x), sy: Math.round(e.y), tx: Math.round(ex), ty: Math.round(ey) });
+  }
+
+  isShielded(e) {
+    if (e.def.ai === "warden" || e.def.boss) return false;
+    for (const w of this._wardens) {
+      if (Math.hypot(e.x - w.x, e.y - w.y) < w.def.shieldR) return true;
+    }
+    return false;
+  }
+
+  emitPattern(pid, x, y, angle, srcName = "") {
     const seed = (Math.random() * 0xffffffff) >>> 0;
     const bullets = spawnPattern(pid, seed, x, y, angle);
-    for (const b of bullets) this.eBullets.push(b);
+    for (const b of bullets) { b.cause = srcName; this.eBullets.push(b); }
+    while (this.eBullets.length > E_BULLET_CAP) this.eBullets.shift();
     this.emit({ t: "pattern", pid, seed, x: Math.round(x), y: Math.round(y), angle: Math.round(angle * 1000) / 1000 });
   }
 
@@ -522,7 +735,7 @@ export class Sim {
       for (const p of this.players.values()) {
         if (p.state !== PS.ALIVE || p.iframesT > 0) continue;
         if (Math.hypot(p.x - b.x, p.y - b.y) < PLAYER.RADIUS + b.r) {
-          this.applyPlayerHit(p, 1);
+          this.applyPlayerHit(p, 1, b.cause ? b.cause.toUpperCase() : "BULLET");
           this.eBullets.splice(i, 1);
           break;
         }
@@ -546,8 +759,12 @@ export class Sim {
         else { this.pBullets.splice(i, 1); continue; }
       }
       for (const e of this.enemies.values()) {
-        if (e.warpT > 0) continue;
+        if (e.phased) continue; // bullets pass straight through a phased Ghost
         if (Math.hypot(e.x - b.x, e.y - b.y) < e.def.radius + 5) {
+          if ((e.def.ai === "boss_foundry" && !e.doorOpen) || this.isShielded(e)) {
+            this.pBullets.splice(i, 1); // absorbed — teaches the order-of-kill puzzle
+            break;
+          }
           const killer = this.players.get(b.owner);
           const died = this.damageEnemy(e, b.dmg, killer, aoeQueue);
           if (died || b.pierce <= 0) { this.pBullets.splice(i, 1); }
@@ -556,11 +773,9 @@ export class Sim {
         }
       }
     }
-    // resolve on-kill blast chains iteratively (no recursion blowups)
     while (aoeQueue.length) {
       const { x, y, dmg, killer } = aoeQueue.pop();
       for (const e of this.enemies.values()) {
-        if (e.warpT > 0) continue;
         if (Math.hypot(e.x - x, e.y - y) < 80) this.damageEnemy(e, dmg, killer, aoeQueue);
       }
     }
@@ -568,11 +783,13 @@ export class Sim {
 
   damageEnemy(e, dmg, killer, aoeQueue) {
     if (!this.enemies.has(e.id)) return false;
+    if (e.phased) return false;
+    if (e.def.ai === "boss_foundry" && !e.doorOpen) return false;
+    if (this.isShielded(e)) return false;
     e.hp -= dmg;
     if (e.hp > 0) return false;
     this.enemies.delete(e.id);
     const def = e.def;
-    // score & multiplier
     const bounty = killer?.stats.bounty ?? 1;
     const overdrive = this.mult >= MULT.MAX - 0.05;
     const points = Math.round(def.score * this.mult * bounty * (overdrive ? 2 : 1));
@@ -580,10 +797,16 @@ export class Sim {
     this.mult = Math.min(MULT.MAX, this.mult + MULT.PER_KILL);
     this.bestMult = Math.max(this.bestMult, this.mult);
     this.sinceKill = 0;
-    if (killer) killer.kills++;
+    if (killer) {
+      killer.kills++;
+      if (killer.stats.bloodrush > 0) killer.dashCd = Math.max(0, killer.dashCd - 0.15 * killer.stats.bloodrush);
+      if (killer.stats.streakBomb > 0 && killer.kills % 25 === 0) {
+        killer.bombs = Math.min(PLAYER.MAX_BOMBS, killer.bombs + killer.stats.streakBomb);
+        this.emit({ t: "streak", who: killer.id });
+      }
+    }
     this.emit({ t: "kill", kind: e.kind, x: Math.round(e.x), y: Math.round(e.y), points, who: killer?.id ?? 0 });
-    // death effects
-    if (def.onDeath?.pattern) this.emitPattern(PATTERN_IDS[def.onDeath.pattern], e.x, e.y, 0);
+    if (def.onDeath?.pattern) this.emitPattern(PATTERN_IDS[def.onDeath.pattern], e.x, e.y, 0, def.name);
     if (def.onDeath?.split) {
       for (let i = 0; i < def.onDeath.count; i++) {
         const a = (i / def.onDeath.count) * Math.PI * 2;
@@ -606,7 +829,6 @@ export class Sim {
         const a = this.tick * TICK_DT * 3 + (i / k) * Math.PI * 2;
         const ox = p.x + Math.cos(a) * 60, oy = p.y + Math.sin(a) * 60;
         for (const e of this.enemies.values()) {
-          if (e.warpT > 0) continue;
           if (Math.hypot(e.x - ox, e.y - oy) < e.def.radius + 14) this.damageEnemy(e, 2.5 * dt, p);
         }
       }
@@ -620,7 +842,6 @@ export class Sim {
       if (z.kind === ZK.FLAME) {
         const owner = this.players.get(z.owner);
         for (const e of this.enemies.values()) {
-          if (e.warpT > 0) continue;
           if (Math.hypot(e.x - z.x, e.y - z.y) < z.r + e.def.radius) this.damageEnemy(e, 2 * dt, owner);
         }
       } else if (z.kind === ZK.WELL) {
@@ -631,11 +852,25 @@ export class Sim {
             e.y += ((z.y - e.y) / d) * 140 * dt;
           }
         }
+      } else if (z.kind === ZK.DARK) {
+        // the Shepherd's herding dark: linger inside and it bites
+        z.grace -= dt;
+        if (z.grace <= 0) {
+          z.tickT -= dt;
+          if (z.tickT <= 0) {
+            z.tickT = 1.25;
+            for (const p of this.players.values()) {
+              if (p.state === PS.ALIVE && Math.hypot(p.x - z.x, p.y - z.y) < z.r) {
+                this.applyPlayerHit(p, 1, "THE DARK");
+              }
+            }
+          }
+        }
       }
       if (z.ttl <= 0) {
         if (z.kind === ZK.MORTAR_TELE) {
           for (const p of this.players.values()) {
-            if (p.state === PS.ALIVE && Math.hypot(p.x - z.x, p.y - z.y) < z.r) this.applyPlayerHit(p, 1);
+            if (p.state === PS.ALIVE && Math.hypot(p.x - z.x, p.y - z.y) < z.r) this.applyPlayerHit(p, 1, "MORTAR");
           }
           this.zones.push({ kind: ZK.BLAST, x: z.x, y: z.y, r: z.r, ttl: 0.25 });
         } else if (z.kind === ZK.WELL) {
@@ -663,7 +898,7 @@ export class Sim {
       if (this.mult >= MULT.MAX - 0.05) flags |= PF.OVERDRIVE;
       players.push({
         id: p.id, pilot: p.pilot, state: p.state, x: p.x, y: p.y, aim: p.aim,
-        hp: Math.max(0, p.hp), dashCd: p.dashCd, abilCd: Math.ceil(p.abilCd),
+        hp: Math.max(0, p.hp), dashCd: p.dashStock > 0 ? 0 : p.dashCd, abilCd: Math.ceil(p.abilCd),
         bombs: p.bombs, flags,
       });
     }
@@ -671,7 +906,8 @@ export class Sim {
     for (const e of this.enemies.values()) {
       let flags = 0;
       if (e.enraged) flags |= EF.ENRAGED;
-      if (e.warpT > 0) flags |= EF.WARPING;
+      if (e.phased) flags |= EF.PHASED;
+      if (e.doorOpen) flags |= EF.OPEN;
       enemies.push({
         id: e.id, kind: e.kind, x: e.x, y: e.y,
         hpPct: Math.max(1, Math.ceil((e.hp / e.maxHp) * 100)), flags,
@@ -681,10 +917,17 @@ export class Sim {
     const zones = this.zones.map(z => ({ kind: z.kind, x: z.x, y: z.y, r: z.r, ttl: z.ttl }));
     return {
       tick: this.tick, phase: this.phase, wave: this.wave,
-      phaseT: Math.max(0, Math.round(this.phaseT * 30)), // ticks remaining
+      phaseT: Math.max(0, Math.round(this.phaseT * 30)),
       mult: this.mult, unbanked: Math.round(this.unbanked), banked: Math.round(this.banked),
       enemiesLeft: this.enemies.size + this.pending.length,
       players, enemies, bullets, zones,
     };
   }
+}
+
+function distToSegment(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = clamp(((px - x1) * dx + (py - y1) * dy) / len2, 0, 1);
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }

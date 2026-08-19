@@ -29,6 +29,11 @@
         <button id="btn-create" class="btn">CREATE LOBBY</button>
         <button id="btn-join" class="btn primary hidden">JOIN RUN</button>
       </div>
+      <div class="row buttons">
+        <button id="btn-daily" class="btn daily">🌑 DAILY DARK</button>
+        <button id="btn-lb" class="btn">🏆 LEADERBOARDS</button>
+        <button id="btn-settings" class="btn">⚙</button>
+      </div>
       <p id="menu-msg" class="dim"></p>
       <p class="dim tiny">WASD move · mouse aim &amp; fire · SPACE dash · E bomb · Q ability · gamepad &amp; touch supported</p>
     </section>
@@ -64,6 +69,33 @@
         <button id="btn-again" class="btn primary big">↻ AGAIN</button>
         <button id="btn-invite2" class="btn">🔗 INVITE</button>
       </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="screen-settings" class="screen hidden">
+      <h2>SETTINGS</h2>
+      <div class="setting"><label>Screen shake <span id="v-shake"></span></label>
+        <input id="set-shake" type="range" min="0" max="100" step="5"></div>
+      <div class="setting"><label>Flashes &amp; strobe</label>
+        <button id="set-flash" class="btn small"></button></div>
+      <div class="setting"><label>The-dark floor brightness <span id="v-floor"></span></label>
+        <input id="set-floor" type="range" min="0" max="80" step="5"></div>
+      <div class="setting"><label>Volume <span id="v-vol"></span></label>
+        <input id="set-vol" type="range" min="0" max="100" step="5"></div>
+      <div class="row buttons"><button id="btn-settings-done" class="btn primary">DONE</button></div>
+      <p class="dim tiny">Floor brightness raises minimum light in deep waves without changing gameplay.</p>
+    </section>
+
+    <!-- LEADERBOARDS -->
+    <section id="screen-lb" class="screen hidden">
+      <h2>🏆 LEADERBOARDS</h2>
+      <div class="row buttons">
+        <button class="btn small lb-tab" data-mode="run" data-period="all">ALL TIME</button>
+        <button class="btn small lb-tab" data-mode="run" data-period="week">THIS WEEK</button>
+        <button class="btn small lb-tab" data-mode="daily">DAILY DARK</button>
+      </div>
+      <div id="lb-body" class="lb-body">Loading…</div>
+      <div class="row buttons"><button id="btn-lb-done" class="btn primary">BACK</button></div>
     </section>
 
     <div id="toast" class="toast hidden"></div>

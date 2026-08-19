@@ -87,7 +87,58 @@ function runScenario(nPlayers) {
   return { nPlayers, maxWave, gameovers, kills, avgMs: Math.round(avgMs * 1000) / 1000 };
 }
 
+// Deep-wave smoke: jump straight into late waves so Snipers, Ghosts,
+// Wardens, Forges and all three late bosses actually execute — the organic
+// scenarios above rarely get past the first boss in harness time.
+function runDeep() {
+  const sim = new Sim();
+  for (let i = 1; i <= 4; i++) sim.addPlayer(i, `BOT${i}`, (i - 1) % 4);
+  sim.startRun();
+  let kills = 0;
+  for (const wave of [7, 9, 12, 14, 15, 20, 25]) {
+    sim.startWave(wave);
+    for (let t = 0; t < Math.round(45 / TICK_DT); t++) {
+      for (const p of sim.players.values()) {
+        // keep bots alive-ish: respawn energy comes from startWave resets
+        let nearest = null, nd = Infinity;
+        for (const e of sim.enemies.values()) {
+          const d = Math.hypot(e.x - p.x, e.y - p.y);
+          if (d < nd) { nd = d; nearest = e; }
+        }
+        const ang = t * 0.03 + p.id * 1.7;
+        let mx = ARENA_W / 2 + Math.cos(ang) * 420 - p.x;
+        let my = ARENA_H / 2 + Math.sin(ang) * 280 - p.y;
+        if (nearest && nd < 170) { mx = p.x - nearest.x; my = p.y - nearest.y; }
+        const ml = Math.hypot(mx, my) || 1;
+        let ax = 1, ay = 0;
+        if (nearest) { ax = (nearest.x - p.x) / (nd || 1); ay = (nearest.y - p.y) / (nd || 1); }
+        p.input = { seq: t, mx: mx / ml, my: my / ml, ax, ay, buttons: BTN.FIRE | (nearest && nd < 90 ? BTN.DASH : 0) };
+      }
+      sim.step(TICK_DT);
+      for (const ev of sim.events) {
+        if (ev.t === "kill") kills++;
+        if (ev.t === "draft_offer") { const p = sim.players.get(ev.to); if (p) sim.action(p, { t: "pick", id: ev.offer[0] }); }
+        if (ev.t === "gameover" || ev.t === "victory") { const p = sim.players.values().next().value; sim.action(p, { t: "again" }); }
+      }
+      sim.events.length = 0;
+      for (const p of sim.players.values()) {
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) throw new Error(`deep: NaN player pos wave ${wave}`);
+      }
+      for (const e of sim.enemies.values()) {
+        if (!Number.isFinite(e.x) || !Number.isFinite(e.y)) throw new Error(`deep: NaN enemy pos wave ${wave} kind ${e.kind}`);
+      }
+      if (sim.enemies.size > 900) throw new Error(`deep: enemy leak wave ${wave}: ${sim.enemies.size}`);
+      if (t % 90 === 0) sim.buildSnapshot();
+      if (sim.phase !== 1) break; // wave cleared or run ended — next forced wave
+    }
+  }
+  return kills;
+}
+
 console.log(`sim-harness: ${SIM_MINUTES} simulated minutes per scenario…`);
+const deepKills = runDeep();
+console.log(`  deep-wave smoke (waves 7→25, all bosses): ${deepKills} kills, invariants held`);
+if (deepKills < 30) throw new Error("deep-wave smoke barely killed anything — late-wave combat broken?");
 const results = [runScenario(1), runScenario(4)];
 for (const r of results) {
   console.log(`  ${r.nPlayers}p: reached wave ${r.maxWave}, ${r.kills} kills, ${r.gameovers} run-ends, avg tick ${r.avgMs}ms`);

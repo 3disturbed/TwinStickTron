@@ -88,10 +88,11 @@ template.
 
 - [x] Software Design Document
 - [x] Implementation plan
-- [x] Catalog entry on darksgames.app (status: soon)
-- [ ] Phase 0 — skeleton + staging deploy
-- [ ] Phase 1 — solo vertical slice
-- [ ] Phase 2 — lobbies & co-op netcode
-- [ ] Phase 3 — full content (enemies, bosses, drafts, the dark)
-- [ ] Phase 4 — meta (leaderboards, Daily Dark, PWA, accounts)
-- [ ] Phase 5 — polish, soak, flip catalog card to LIVE
+- [x] Catalog entry on darksgames.app — **LIVE**
+- [x] Phase 0 — skeleton + staging deploy
+- [x] Phase 1 — solo vertical slice
+- [x] Phase 2 — lobbies & co-op netcode
+- [x] Phase 3 — full content: 12 enemies, 5 bosses, waves 1–25, the dark, 40-mod pool, death recap, accessibility settings
+- [x] Phase 4 — meta: server-side leaderboards + Daily Dark (node:sqlite), PWA
+- [ ] Phase 4b — optional DG account sign-in for leaderboard identity
+- [x] Phase 5 — headless verification + deployed; ongoing: balance from real runs, delta-compressed snapshots
