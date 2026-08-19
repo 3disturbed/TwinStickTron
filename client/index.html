@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>UltraDark — co-op twin-stick wave shooter</title>
+  <meta name="description" content="A neon co-op twin-stick wave shooter. Send one link — your friends are in your arena in seconds. No installs, no sign-ups.">
+  <meta property="og:title" content="UltraDark">
+  <meta property="og:description" content="Two sticks. Ten thousand robots. One link brings a friend.">
+  <meta name="theme-color" content="#0b0518">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="overlay">
+    <!-- MENU -->
+    <section id="screen-menu" class="screen">
+      <h1 class="logo">ULTRA<span>DARK</span></h1>
+      <p class="tag">Two sticks. Ten thousand robots. One link brings a friend.</p>
+      <div class="row">
+        <input id="name" maxlength="12" placeholder="CALLSIGN" autocomplete="off">
+      </div>
+      <div id="pilots" class="pilots"></div>
+      <div class="row buttons">
+        <button id="btn-solo" class="btn primary">SOLO RUN</button>
+        <button id="btn-create" class="btn">CREATE LOBBY</button>
+        <button id="btn-join" class="btn primary hidden">JOIN RUN</button>
+      </div>
+      <p id="menu-msg" class="dim"></p>
+      <p class="dim tiny">WASD move · mouse aim &amp; fire · SPACE dash · E bomb · Q ability · gamepad &amp; touch supported</p>
+    </section>
+
+    <!-- LOBBY -->
+    <section id="screen-lobby" class="screen hidden">
+      <h2>LOBBY <span id="lobby-code" class="code"></span></h2>
+      <div id="roster" class="roster"></div>
+      <div class="row buttons">
+        <button id="btn-invite" class="btn big invite">🔗 INVITE — SEND THE LINK</button>
+      </div>
+      <div class="row buttons">
+        <button id="btn-start" class="btn primary big">▶ START RUN</button>
+      </div>
+      <p class="dim">Friends open the link and drop straight in. 1–4 players.</p>
+    </section>
+
+    <!-- DRAFT (intermission) -->
+    <section id="screen-draft" class="screen hidden compact">
+      <h3 id="draft-title">WAVE CLEAR — DRAFT AN UPGRADE</h3>
+      <div id="draft-cards" class="cards"></div>
+      <div class="row buttons">
+        <button id="btn-bank" class="btn bank">🏦 BANK <span id="bank-amount"></span></button>
+      </div>
+      <div id="draft-timer" class="timerbar"><i></i></div>
+    </section>
+
+    <!-- SCORE -->
+    <section id="screen-score" class="screen hidden">
+      <h2 id="score-title">RUN OVER</h2>
+      <div id="score-body" class="scorebody"></div>
+      <div class="row buttons">
+        <button id="btn-again" class="btn primary big">↻ AGAIN</button>
+        <button id="btn-invite2" class="btn">🔗 INVITE</button>
+      </div>
+    </section>
+
+    <div id="toast" class="toast hidden"></div>
+    <div id="banner" class="banner hidden"></div>
+  </div>
+
+  <div id="touch-ui" class="hidden">
+    <div id="stick-l" class="stick"><i></i></div>
+    <div id="stick-r" class="stick"><i></i></div>
+    <button id="tbtn-bomb" class="tbtn">💣</button>
+    <button id="tbtn-abil" class="tbtn">✦</button>
+  </div>
+
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

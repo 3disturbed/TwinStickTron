@@ -1,0 +1,90 @@
+// Shared constants — imported by BOTH server and client (SDD §3.10).
+// Anything both sides must agree on lives here. Pure data, no Node/DOM APIs.
+
+export const ARENA_W = 2048;
+export const ARENA_H = 1152;
+export const WALL_PAD = 24; // ships/enemies keep this far off the wall
+
+export const TICK_RATE = 30;              // server sim Hz
+export const TICK_DT = 1 / TICK_RATE;
+export const SNAPSHOT_EVERY = 2;          // snapshots at 15 Hz
+export const INPUT_RATE = 30;             // client input send Hz
+export const INTERP_DELAY_MS = 100;       // remote entity render delay
+
+export const POS_SCALE = 8;               // quantise positions to 1/8 unit in u16
+
+export const PLAYER = {
+  RADIUS: 14,
+  MAX_HP: 3,
+  SPEED: 300,                 // units/s
+  ACCEL: 2600,                // approach accel (reaches speed <80ms per SDD §2.2)
+  FRICTION: 3400,
+  FIRE_CD: 0.14,              // seconds between shots (base)
+  BULLET_SPEED: 720,
+  BULLET_LIFE: 1.4,
+  BULLET_DMG: 1,
+  DASH_SPEED: 900,
+  DASH_TIME: 0.16,
+  DASH_CD: 2.0,
+  DASH_IFRAMES: 0.28,
+  HIT_IFRAMES: 1.0,
+  ABILITY_CD: 12,
+  START_BOMBS: 1,
+  MAX_BOMBS: 3,
+  REVIVE_RANGE: 56,
+  REVIVE_TIME: 1.5,
+  DOWNED_TIMEOUT: 15,
+  SOLO_LIVES: 3,
+};
+
+export const MULT = {
+  MAX: 10,
+  PER_KILL: 0.12,
+  DECAY_PER_S: 0.35,     // after grace
+  DECAY_GRACE: 3,        // seconds without a kill before decay
+  HIT_FACTOR: 0.5,       // halve on any player hit
+};
+
+export const WAVE = {
+  MAX: 10,               // v1 run length; victory beyond this
+  INTERMISSION_S: 20,
+  BOSS_EVERY: 5,
+  SPAWN_MIN_DIST: 320,   // never spawn within this of a player (SDD §2.9)
+  WARP_IN_S: 0.5,
+};
+
+export const REVIVE_COST_PER_WAVE = 100;  // banked-score insurance (SDD §2.3)
+
+// Entity kind ids on the wire (u8)
+export const EK = {
+  DRONE: 1, MITE: 2, WEAVER: 3, BRUTE: 4, SPINNER: 5, MORTAR: 6,
+  BRUTE_PRIME: 20, HEX_PRIME: 21,
+};
+
+// Zone kinds (telegraphs & fields, streamed in snapshots, u8)
+export const ZK = {
+  WARP: 1,        // enemy spawn telegraph
+  MORTAR_TELE: 2, // incoming mortar shell circle
+  BLAST: 3,       // brief explosion visual
+  FLAME: 4,       // EMBER wall/zone
+  AEGIS: 5,       // HALO bubble
+  WELL: 6,        // ONYX gravity well
+};
+
+// Player state (u8)
+export const PS = { ALIVE: 0, DOWNED: 1, OUT: 2, SPECTATING: 3 };
+
+// Room phase (u8)
+export const PHASE = { LOBBY: 0, WAVE: 1, INTERMISSION: 2, GAMEOVER: 3, VICTORY: 4 };
+
+export const PILOTS = [
+  { id: 0, name: "VANTA", color: "#39f0ff", lean: "all-round", ability: "Blink Volley", speed: 1.0, fire: 1.0 },
+  { id: 1, name: "EMBER", color: "#ff7a3d", lean: "close range", ability: "Flame Zone", speed: 1.05, fire: 1.0 },
+  { id: 2, name: "HALO", color: "#b8ff5e", lean: "support", ability: "Aegis Field", speed: 1.0, fire: 0.95 },
+  { id: 3, name: "ONYX", color: "#c26bfa", lean: "heavy", ability: "Gravity Well", speed: 0.92, fire: 1.1 },
+];
+
+export const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"; // no 0/O/1/I/L
+export const ROOM_CODE_LEN = 6;
+
+export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }

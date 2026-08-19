@@ -1,0 +1,13 @@
+{
+  "name": "UltraDark",
+  "short_name": "UltraDark",
+  "description": "Neon co-op twin-stick wave shooter. One link brings a friend.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#05020c",
+  "theme_color": "#0b0518",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

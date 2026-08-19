@@ -1,0 +1,17 @@
+{
+  "name": "ultradark",
+  "version": "0.1.0",
+  "description": "UltraDark — link-first co-op twin-stick wave shooter (repo: TwinStickTron)",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.js",
+    "check": "node tools/check-imports.mjs && node --test 'test/*.test.mjs' && node tools/sim-harness.mjs",
+    "soak": "node tools/bot-client.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.18.0"
+  }
+}
