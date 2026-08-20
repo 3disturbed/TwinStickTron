@@ -22,6 +22,11 @@ const E_BULLET_CAP = 1200;
 
 export class Sim {
   constructor() {
+    // All non-wave randomness flows through these two streams so a run can
+    // be replayed bit-for-bit (fixture generation, cross-runtime parity).
+    // Live rooms leave them as Math.random and behave exactly as before.
+    this.rng = Math.random;
+    this.rngDrop = Math.random;   // injectable for tests
     this.phase = PHASE.LOBBY;
     this.tick = 0;
     this.wave = 0;
@@ -44,14 +49,20 @@ export class Sim {
     this.bid = 1;
     this.offers = new Map();
     this.dailySeed = null;   // set for Daily Dark / challenge rooms — waves become deterministic
-    this.runSeed = (Math.random() * 0xffffffff) >>> 0;
+    this.runSeed = (this.rng() * 0xffffffff) >>> 0;
     this._wardens = [];
     this.pickups = new Map();
     this.pkid = 1;
     this.stasisT = 0;
-    this.rngDrop = Math.random; // injectable for tests
     this.turrets = [];          // RIGG's deployables (visuals ride ZK.TURRET zones)
     this.shopOpen = false;      // post-boss intermissions open the Core Shop
+  }
+
+  // Pin every random stream from one seed. Used by the fixture generator
+  // and the C# parity harness; live rooms never call this.
+  seedAll(seed) {
+    this.rng = mulberry32(seed >>> 0);
+    this.rngDrop = mulberry32((seed ^ 0x9e3779b9) >>> 0);
   }
 
   hpMax(p) { return Math.max(1, PLAYER.MAX_HP + (p.stats.maxHp | 0)); }
@@ -89,7 +100,7 @@ export class Sim {
 
   // ---------- run control ----------
   startRun() {
-    this.runSeed = this.dailySeed ?? ((Math.random() * 0xffffffff) >>> 0);
+    this.runSeed = this.dailySeed ?? ((this.rng() * 0xffffffff) >>> 0);
     this.wave = 0;
     this.mult = 1; this.bestMult = 1; this.sinceKill = 999;
     this.unbanked = 0; this.banked = 0;
@@ -167,14 +178,14 @@ export class Sim {
       // free random pilot-signature upgrade, on top of the draft (stacks)
       const pool = classModsFor(p.pilot);
       if (pool.length) {
-        const grant = pool[Math.floor(Math.random() * pool.length)];
+        const grant = pool[Math.floor(this.rng() * pool.length)];
         p.mods.push(grant.id);
         p.stats = computeStats(PILOTS[p.pilot], p.mods);
         p.hp = Math.max(1, Math.min(this.hpMax(p), p.hp));
         this.emit({ t: "class_grant", to: p.id, mod: grant.id, name: grant.name, desc: grant.desc });
       }
       p.picked = false;
-      const offer = draftOffer(Math.random, this.wave);
+      const offer = draftOffer(this.rng, this.wave);
       this.offers.set(p.id, offer);
       this.emit({ t: "draft_offer", to: p.id, offer, wave: this.wave });
     }
@@ -258,7 +269,7 @@ export class Sim {
         for (const p of this.players.values()) {
           if (p.state !== PS.SPECTATING && !p.picked) {
             const offer = this.offers.get(p.id) ?? [];
-            if (offer.length) this.action(p, { t: "pick", id: offer[Math.floor(Math.random() * offer.length)] });
+            if (offer.length) this.action(p, { t: "pick", id: offer[Math.floor(this.rng() * offer.length)] });
           }
         }
         this.startWave(this.wave + 1); // endless — the dark always has more
@@ -456,7 +467,7 @@ export class Sim {
     const life = (w.life ?? PLAYER.BULLET_LIFE) * s.bulletLife * lifeMul;
     for (let i = 0; i < count; i++) {
       const off = count === 1 ? 0 : (i - (count - 1) / 2) * spread;
-      const a = p.aim + off + (jitter ? (Math.random() - 0.5) * 2 * jitter : 0);
+      const a = p.aim + off + (jitter ? (this.rng() - 0.5) * 2 * jitter : 0);
       this.pBullets.push({
         id: this.bid = (this.bid % 65000) + 1,
         x: p.x + Math.cos(a) * 18, y: p.y + Math.sin(a) * 18,
@@ -758,9 +769,9 @@ export class Sim {
   spawnAtEdge(kind) {
     let best = null, bestD = -1;
     for (let tries = 0; tries < 8; tries++) {
-      const side = Math.floor(Math.random() * 4);
-      const x = side === 0 ? WALL_PAD : side === 1 ? ARENA_W - WALL_PAD : WALL_PAD + Math.random() * (ARENA_W - WALL_PAD * 2);
-      const y = side < 2 ? WALL_PAD + Math.random() * (ARENA_H - WALL_PAD * 2) : side === 2 ? WALL_PAD : ARENA_H - WALL_PAD;
+      const side = Math.floor(this.rng() * 4);
+      const x = side === 0 ? WALL_PAD : side === 1 ? ARENA_W - WALL_PAD : WALL_PAD + this.rng() * (ARENA_W - WALL_PAD * 2);
+      const y = side < 2 ? WALL_PAD + this.rng() * (ARENA_H - WALL_PAD * 2) : side === 2 ? WALL_PAD : ARENA_H - WALL_PAD;
       let d = Infinity;
       for (const p of this.players.values()) if (p.state === PS.ALIVE) d = Math.min(d, Math.hypot(p.x - x, p.y - y));
       if (d >= WAVE.SPAWN_MIN_DIST) { best = { x, y }; break; }
@@ -784,16 +795,16 @@ export class Sim {
       kind, def, x, y, vx: 0, vy: 0,
       hp, maxHp: hp,
       speed: def.speed * (1 + this.wave * 0.03),
-      fireT: (def.fireEvery ?? 0) * (0.5 + Math.random() * 0.5),
-      wanderT: 0, wanderA: Math.random() * Math.PI * 2,
-      sinePhase: Math.random() * Math.PI * 2, t: 0,
-      enraged: false, spokeAngle: Math.random() * Math.PI * 2,
+      fireT: (def.fireEvery ?? 0) * (0.5 + this.rng() * 0.5),
+      wanderT: 0, wanderA: this.rng() * Math.PI * 2,
+      sinePhase: this.rng() * Math.PI * 2, t: 0,
+      enraged: false, spokeAngle: this.rng() * Math.PI * 2,
       contactCd: 0,
       slowT: 0, stunT: 0, slowF: 1, burnT: 0, burnStacks: 0, burnBy: 0,
       // sniper
       aiming: false, aimT: 0, lockX: 0, lockY: 0,
       // ghost
-      phased: def.ai === "ghost", phaseT: (def.phaseTime ?? 0) * (0.5 + Math.random()), windowT: 0,
+      phased: def.ai === "ghost", phaseT: (def.phaseTime ?? 0) * (0.5 + this.rng()), windowT: 0,
       // forge / foundry
       spawnT: def.spawnEvery ?? 0, doorOpen: false, doorT: def.doorClosed ?? 0,
       // shepherd / ultra
@@ -852,7 +863,7 @@ export class Sim {
         }
       } else if (ai === "wander") {
         e.wanderT -= dt;
-        if (e.wanderT <= 0) { e.wanderT = 1 + Math.random() * 1.5; e.wanderA = Math.random() * Math.PI * 2; }
+        if (e.wanderT <= 0) { e.wanderT = 1 + this.rng() * 1.5; e.wanderA = this.rng() * Math.PI * 2; }
         e.vx = Math.cos(e.wanderA) * e.speed; e.vy = Math.sin(e.wanderA) * e.speed;
       } else if (ai === "mortar") {
         const cx = ARENA_W / 2, cy = ARENA_H / 2;
@@ -883,8 +894,8 @@ export class Sim {
           e.spawnT = def.spawnEvery;
           const kinds = this.wave >= 8 ? [EK.MITE, EK.DRONE, EK.WEAVER] : [EK.MITE, EK.DRONE];
           for (let i = 0; i < 2; i++) {
-            const a = Math.random() * Math.PI * 2;
-            this.pendingAt(kinds[Math.floor(Math.random() * kinds.length)],
+            const a = this.rng() * Math.PI * 2;
+            this.pendingAt(kinds[Math.floor(this.rng() * kinds.length)],
               e.x + Math.cos(a) * 70, e.y + Math.sin(a) * 70);
           }
         }
@@ -940,11 +951,11 @@ export class Sim {
           e.darkT = def.darkEvery * (e.enraged ? 0.6 : 1);
           const victims = [...this.players.values()].filter(p => p.state === PS.ALIVE);
           if (victims.length) {
-            const v = victims[Math.floor(Math.random() * victims.length)];
+            const v = victims[Math.floor(this.rng() * victims.length)];
             this.zones.push({
               kind: ZK.DARK,
-              x: clamp(v.x + (Math.random() - 0.5) * 240, WALL_PAD, ARENA_W - WALL_PAD),
-              y: clamp(v.y + (Math.random() - 0.5) * 240, WALL_PAD, ARENA_H - WALL_PAD),
+              x: clamp(v.x + (this.rng() - 0.5) * 240, WALL_PAD, ARENA_W - WALL_PAD),
+              y: clamp(v.y + (this.rng() - 0.5) * 240, WALL_PAD, ARENA_H - WALL_PAD),
               r: 240, ttl: 6, grace: 1.5, tickT: 0,
             });
           }
@@ -1051,7 +1062,7 @@ export class Sim {
   }
 
   emitPattern(pid, x, y, angle, srcName = "") {
-    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const seed = (this.rng() * 0xffffffff) >>> 0;
     const bullets = spawnPattern(pid, seed, x, y, angle);
     for (const b of bullets) { b.cause = srcName; this.eBullets.push(b); }
     while (this.eBullets.length > E_BULLET_CAP) this.eBullets.shift();
