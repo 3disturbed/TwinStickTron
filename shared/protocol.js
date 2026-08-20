@@ -3,6 +3,10 @@
 // Hot paths (INPUT, SNAPSHOT, PING) are binary; rare messages ride a JSON
 // envelope behind a binary id byte.
 
+// Bumped whenever the snapshot layout changes; WELCOME carries it so a
+// stale cached client reloads itself instead of mis-decoding forever.
+export const PROTO = 2;
+
 export const MSG = {
   HELLO: 0x01,    // C→S JSON {name, pilot}
   WELCOME: 0x02,  // S→C JSON {id, code, solo, roster, phase, wave}
@@ -71,12 +75,12 @@ export function decodePong(v) {
 // ---------- SNAPSHOT ----------
 // Header: [id u8][tick u32][yourAck u16][phase u8][wave u8][phaseT u16]
 //         [mult10 u8][unbanked u32][banked u32][enemiesLeft u16][stasis10 u8]
-// players u8 ×17B, enemies u16 ×9B, bullets u16 ×9B, zones u8 ×9B,
-// pickups u8 ×8B
+// players u8 ×19B (…, cores u16), enemies u16 ×9B, bullets u16 ×9B,
+// zones u8 ×9B, pickups u8 ×8B
 export const ACK_OFFSET = 5; // patched per-recipient before send
 
 export function encodeSnapshot(s) {
-  const size = 23 + 1 + s.players.length * 17 + 2 + s.enemies.length * 9 +
+  const size = 23 + 1 + s.players.length * 19 + 2 + s.enemies.length * 9 +
                2 + s.bullets.length * 9 + 1 + s.zones.length * 9 +
                1 + s.pickups.length * 8;
   const b = new ArrayBuffer(size);
@@ -107,7 +111,8 @@ export function encodeSnapshot(s) {
     v.setUint8(o + 14, p.cons?.[0] ?? 0);
     v.setUint8(o + 15, p.cons?.[1] ?? 0);
     v.setUint8(o + 16, p.cons?.[2] ?? 0);
-    o += 17;
+    v.setUint16(o + 17, Math.min(65535, p.cores ?? 0), true);
+    o += 19;
   }
   v.setUint16(o, s.enemies.length, true); o += 2;
   for (const e of s.enemies) {
@@ -167,8 +172,9 @@ export function decodeSnapshot(v) {
       bombs: v.getUint8(o + 11), flags: v.getUint8(o + 12),
       orbitals: v.getUint8(o + 13),
       cons: [v.getUint8(o + 14), v.getUint8(o + 15), v.getUint8(o + 16)],
+      cores: v.getUint16(o + 17, true),
     };
-    o += 17;
+    o += 19;
   }
   const ne = v.getUint16(o, true); o += 2;
   s.enemies = new Array(ne);
@@ -221,4 +227,4 @@ const ua = (b) => (b / 255) * Math.PI * 2;
 
 // Player flag bits
 export const PF = { DASHING: 1, IFRAMES: 2, REVIVING: 4, OVERDRIVE: 8 };
-export const EF = { ENRAGED: 1, WARPING: 2, OPEN: 4, PHASED: 8 };
+export const EF = { ENRAGED: 1, WARPING: 2, OPEN: 4, PHASED: 8, CHILLED: 16 };

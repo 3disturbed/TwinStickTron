@@ -180,18 +180,22 @@ At each intermission every player simultaneously drafts **1 of 3 mods**
 - Every 5th intermission (post-boss) the squad also **votes one Team Mod**
   (squad-wide effect: shared bomb charge on boss kills, cheaper revives…).
 
-### 2.8 Pilots (launch: 4, all free)
+### 2.8 Classes (launch: 8, all free)
 
-Pilots differ in signature ability + one stat lean; weapons come from drafts.
+Every class has its OWN default weapon and signature ability — the class is
+a playstyle, not a stat tweak. Class-signature upgrades are granted free
+each intermission, and the post-boss Core Shop (§2.13) deepens the identity.
 
-- **VANTA** — all-rounder. *Blink Volley:* short teleport that fires a
-  radial burst on exit.
-- **EMBER** — close-range lean. *Flame Wall:* temporary wall that blocks
-  enemy bullets and burns enemies through it.
-- **HALO** — support lean. *Aegis Field:* projected bubble; allies inside
-  can't drop the multiplier from hits (hits still down them).
-- **ONYX** — heavy lean. *Gravity Well:* pulls enemies and enemy bullets
-  into a point, then pops.
+| Class | Stats | Weapon | Ability (Q) |
+|---|---|---|---|
+| **BINK** ✦ | fast | SMG — high cadence, light rounds, slight jitter | Blink Volley: short teleport + radial burst |
+| **BLAZE** ▲ | medium | Scattergun — 7-pellet cone, short range | Flame Zone: burning area ahead |
+| **AMBER** ◯ | medium | Blaster | Beacon Warp: drop a beacon, warp back to it later. Passive: mobile heal aura (allies +1 HP/5s) |
+| **DAVE** ◉ | slow, +2 max HP | Cleaver — 120° melee arc, heavy, knockback | Gravity Well: pull + detonate |
+| **SPARKS** ⌁ | medium | Arc gun — chains to 2 nearby enemies at 50% | Tesla Pylon: deployable auto-zapper |
+| **RIGG** ⚒ | medium-slow | Blaster | Auto-Turret: deployable aimbot, owner-credited |
+| **KELVIN** ❄ | medium | Chill Lance — hits slow enemies to 55% | Frost Nova: freeze everything nearby 1.5s |
+| **HAWK** ⌖ | medium | Railgun — slow, massive, pierces 3 | Triple Rail: instant 3-rail fan |
 
 ### 2.9 Difficulty & fairness
 
@@ -228,6 +232,21 @@ flashes, capped strobe rate), three colourblind-safe palettes (enemy colour
 never the only signal — silhouette is primary), full remapping, hold-vs-
 toggle fire, aim assist strength slider, UI scale, and "the dark" floor
 brightness option (raises minimum ambient light without changing gameplay).
+
+### 2.13 Cores & the Core Shop
+
+A second, personal currency — **Cores (⬡)** — runs beside score. Kills pay
+the killer 1–4 cores by enemy weight (bosses 30); every wave clear pays all
+active players a stipend of 5 + wave. Cores reset each run.
+
+After every boss fight the intermission stretches to 40s and the **Core
+Shop** opens: ~3 class-specific items per class plus 4 generics, priced
+25–90⬡, each a real playstyle change (BLAZE's Slug Shot turns the shotgun
+into a sniper slug; DAVE's Whirlwind makes the cleave 360°; KELVIN's
+Shatter makes frozen enemies take +75% from him). Purchases are validated
+server-side (class match, funds, once-only), apply through the same mod
+pipeline as drafts, and the timer collapses once everyone has picked their
+draft and pressed READY in the shop.
 
 ### 2.12 Meta & retention
 

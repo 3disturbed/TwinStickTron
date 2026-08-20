@@ -1,13 +1,13 @@
 // UltraDark service worker — app-shell cache. NEVER touches /ws or /api
 // (SDD §3.10). Bump VERSION on client deploys.
-const VERSION = "ud-v7";
+const VERSION = "ud-v8";
 const SHELL = [
   "/", "/styles.css", "/manifest.webmanifest", "/icons/icon.svg",
   "/js/main.js", "/js/net.js", "/js/game.js", "/js/input.js",
   "/js/render.js", "/js/ui.js", "/js/audio.js",
   "/shared/constants.js", "/shared/rng.js", "/shared/movement.js",
   "/shared/patterns.js", "/shared/enemies.js", "/shared/mods.js",
-  "/shared/protocol.js", "/shared/consumables.js",
+  "/shared/protocol.js", "/shared/consumables.js", "/shared/shop.js",
 ];
 
 self.addEventListener("install", (e) => {

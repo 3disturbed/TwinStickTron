@@ -20,6 +20,7 @@ export const world = {
   eBullets: [],                                      // client-simmed pattern bullets
   lasers: [],                                        // sniper telegraphs & beams
   pickups: [], myCons: [], stasis: 0,                // consumables
+  myCores: 0, shopOffer: null, intermissionS: 20,    // the Core Shop
   locals: [],  // couch co-op seats beyond P1 (managed by main.js)
   challenge: null, // {n, s, w, seed} when playing someone's challenge link
   me: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0, alive: true },
@@ -55,6 +56,7 @@ export function onSnapshot(s) {
     world.myDashCd = meS.dashCd; world.myAbilCd = meS.abilCd;
     world.myState = meS.state;
     world.myCons = (meS.cons ?? []).filter(Boolean);
+    world.myCores = meS.cores ?? 0;
     world.overdrive = !!(meS.flags & PF.OVERDRIVE);
     // reconcile prediction: gentle blend, hard snap on big error
     const err = Math.hypot(meS.x - world.me.x, meS.y - world.me.y);
@@ -71,7 +73,7 @@ export function onSnapshot(s) {
     if (!seat.id) continue;
     const sS = s.players.find(p => p.id === seat.id);
     if (!sS) continue;
-    seat.hud = { hp: sS.hp, bombs: sS.bombs, cons: (sS.cons ?? []).filter(Boolean), dashCd: sS.dashCd, abilCd: sS.abilCd, state: sS.state };
+    seat.hud = { hp: sS.hp, bombs: sS.bombs, cons: (sS.cons ?? []).filter(Boolean), dashCd: sS.dashCd, abilCd: sS.abilCd, state: sS.state, cores: sS.cores ?? 0 };
     const err = Math.hypot(sS.x - seat.pred.x, sS.y - seat.pred.y);
     if (err > 64 || sS.state !== PS.ALIVE) {
       seat.pred.x = sS.x; seat.pred.y = sS.y; seat.pred.vx = 0; seat.pred.vy = 0;
@@ -168,7 +170,7 @@ export function handleEvent(ev) {
     });
   } else if (ev.t === "bomb") {
     world.eBullets.length = 0;
-  } else if (ev.t === "picked" && ev.who === world.myId) {
+  } else if ((ev.t === "picked" || ev.t === "bought") && ev.who === world.myId) {
     world.myMods.push(ev.mod);
     world.myStats = computeStats(PILOTS[world.myPilot], world.myMods);
   } else if (ev.t === "class_grant") {

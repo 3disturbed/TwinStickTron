@@ -3,9 +3,10 @@
 
 import { PILOTS, PHASE, MAX_PLAYERS } from "/shared/constants.js";
 import { MODS, modById } from "/shared/mods.js";
+import { shopItemById } from "/shared/shop.js";
 
 const $ = (id) => document.getElementById(id);
-const screens = ["screen-menu", "screen-lobby", "screen-draft", "screen-score", "screen-settings", "screen-lb"];
+const screens = ["screen-menu", "screen-lobby", "screen-draft", "screen-score", "screen-settings", "screen-lb", "screen-shop"];
 
 export const ui = { onAction: null }; // main.js wires this
 
@@ -23,7 +24,7 @@ export function initMenu(joinCode, defaults) {
     const el = document.createElement("div");
     el.className = "pilot" + (p.id === defaults.pilot ? " sel" : "");
     el.style.setProperty("--c", p.color);
-    el.innerHTML = `<div class="nm" style="color:${p.color}">${p.symbol} ${p.name}</div><div class="ab">${p.lean}<br>✦ ${p.ability}</div>`;
+    el.innerHTML = `<div class="nm" style="color:${p.color}">${p.symbol} ${p.name}</div><div class="ab">${p.lean}<br>▸ ${p.weapon.label}<br>✦ ${p.ability}</div>`;
     el.onclick = () => {
       pilotsEl.querySelectorAll(".pilot").forEach(x => x.classList.remove("sel"));
       el.classList.add("sel");
@@ -117,7 +118,9 @@ export function updateBank(amount, canBank) {
   $("btn-bank").disabled = !canBank || amount <= 0;
 }
 export function updateDraftTimer(frac) {
-  $("draft-timer").firstElementChild.style.width = `${Math.max(0, frac * 100)}%`;
+  const w = `${Math.max(0, frac * 100)}%`;
+  $("draft-timer").firstElementChild.style.width = w;
+  $("shop-timer").firstElementChild.style.width = w;
 }
 export function hideDraft() { $("screen-draft").classList.add("hidden"); }
 
@@ -168,6 +171,101 @@ export function seatDraftConfirm(seat) {
   seat.pickedUi = true;
   seat.cardEls.forEach(({ el: e }) => { e.style.opacity = 0.4; e.classList.remove("sel"); });
   el.style.opacity = 1;
+  el.classList.add("picked");
+  return id;
+}
+
+// ---------- the Core Shop (post-boss intermissions) ----------
+// P1's storefront. Items grey out when owned or unaffordable; the live
+// cores balance re-renders affordability every snapshot via updateShop().
+let shopState = { items: [], owned: new Set(), cores: 0 };
+
+export function showShop(itemIds, cores, ownedIds) {
+  shopState = { items: itemIds, owned: new Set(ownedIds), cores };
+  renderShopCards();
+  showScreen("screen-shop");
+}
+export function updateShop(cores, ownedIds) {
+  if ($("screen-shop").classList.contains("hidden")) return;
+  shopState.cores = cores;
+  if (ownedIds) shopState.owned = new Set(ownedIds);
+  renderShopCards();
+}
+function renderShopCards() {
+  $("shop-cores").textContent = `⬡ ${shopState.cores.toLocaleString("en-US")}`;
+  const el = $("shop-cards");
+  el.innerHTML = "";
+  for (const id of shopState.items) {
+    const it = shopItemById(id);
+    if (!it) continue;
+    const owned = it.once && shopState.owned.has(id);
+    const poor = shopState.cores < it.price;
+    const card = document.createElement("div");
+    card.className = "card shopcard" + (owned ? " owned" : poor ? " poor" : "");
+    card.innerHTML =
+      `<div class="fam">${it.pilot === null ? "ANY CLASS" : PILOTS[it.pilot].symbol + " " + PILOTS[it.pilot].name}</div>` +
+      `<div class="nm">${it.name}</div><div class="ds">${it.desc}</div>` +
+      `<div class="price">${owned ? "OWNED" : "⬡ " + it.price}</div>`;
+    if (!owned && !poor) {
+      card.onclick = () => ui.onAction?.({ t: "buy", id });
+    }
+    el.appendChild(card);
+  }
+}
+export function hideShopTab() {
+  $("btn-tab-shop").classList.add("hidden");
+}
+export function showShopTab(cores) {
+  const b = $("btn-tab-shop");
+  b.classList.remove("hidden");
+  b.textContent = `⬡ SHOP (${cores})`;
+}
+
+// couch seats: a compact pad-navigable shop row appended under their draft
+export function addShopRow(seat, pilotDef, itemIds, cores) {
+  const wrap = document.createElement("div");
+  wrap.className = "draft-seat";
+  wrap.innerHTML = `<div class="seat-label" style="color:${pilotDef.color}">${pilotDef.symbol} ${seat.name} — SHOP ⬡${cores} (d-pad + Ⓐ, READY to finish)</div>`;
+  const row = document.createElement("div");
+  row.className = "cards";
+  seat.shopEls = [];
+  seat.shopSel = 0;
+  seat.shopDoneUi = false;
+  for (const id of itemIds) {
+    const it = shopItemById(id);
+    if (!it) continue;
+    const el = document.createElement("div");
+    el.className = "card shopcard small";
+    el.innerHTML = `<div class="nm">${it.name}</div><div class="ds">${it.desc}</div><div class="price">⬡ ${it.price}</div>`;
+    seat.shopEls.push({ el, id });
+    row.appendChild(el);
+  }
+  const done = document.createElement("div");
+  done.className = "card shopcard small ready";
+  done.innerHTML = `<div class="nm">✔ READY</div><div class="ds">Finish shopping</div>`;
+  seat.shopEls.push({ el: done, id: "__done" });
+  row.appendChild(done);
+  wrap.appendChild(row);
+  $("draft-locals").appendChild(wrap);
+  drawSeatShopSel(seat);
+}
+export function drawSeatShopSel(seat) {
+  seat.shopEls?.forEach(({ el }, i) => el.classList.toggle("sel", i === seat.shopSel && !seat.shopDoneUi));
+}
+export function seatShopMove(seat, dir) {
+  if (!seat.shopEls?.length || seat.shopDoneUi) return;
+  seat.shopSel = (seat.shopSel + dir + seat.shopEls.length) % seat.shopEls.length;
+  drawSeatShopSel(seat);
+}
+export function seatShopConfirm(seat) {
+  if (!seat.shopEls?.length || seat.shopDoneUi) return null;
+  const { el, id } = seat.shopEls[seat.shopSel];
+  if (id === "__done") {
+    seat.shopDoneUi = true;
+    seat.shopEls.forEach(({ el: e }) => e.classList.remove("sel"));
+    el.classList.add("picked");
+    return "__done";
+  }
   el.classList.add("picked");
   return id;
 }

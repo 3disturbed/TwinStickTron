@@ -36,7 +36,7 @@ function bot(code, n, roomIdx) {
   const timers = [];
   ws.on("open", () => {
     stats.bots++;
-    ws.send(encodeJson(MSG.HELLO, { name: `BOT${roomIdx}-${n}`, pilot: n % 4 }));
+    ws.send(encodeJson(MSG.HELLO, { name: `BOT${roomIdx}-${n}`, pilot: n % 8 }));
     timers.push(setInterval(() => {
       t++;
       const ang = t * 0.05 + n;

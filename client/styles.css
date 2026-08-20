@@ -140,6 +140,18 @@ input:focus { border-color: #39f0ff; box-shadow: 0 0 12px rgba(57, 240, 255, 0.3
 .grant.small { font-size: 0.75rem; color: #b8a6ff; text-align: left; margin-bottom: 6px; }
 .couch-hint { color: #66779c; font-size: 0.8rem; margin-top: 10px; }
 
+/* the Core Shop */
+.shopgrid { max-width: 560px; }
+.card.shopcard { position: relative; padding-bottom: 26px; }
+.card.shopcard .price { position: absolute; bottom: 8px; left: 12px; color: #ffe45b; font-weight: 700; font-size: 0.85rem; }
+.card.shopcard.owned { opacity: 0.35; cursor: default; }
+.card.shopcard.owned .price { color: #b8ff5e; }
+.card.shopcard.poor { opacity: 0.55; cursor: default; }
+.card.shopcard.poor:hover { transform: none; box-shadow: none; border-color: #2c3f66; }
+.card.shopcard.small { width: 118px; font-size: 0.85em; }
+.card.shopcard.ready { border-color: #b8ff5e88; }
+.btn.shoptab { border-color: #ffe45b88; color: #ffe45b; }
+
 /* challenge links */
 .challenge {
   border: 1px solid #ff5b6e88; border-radius: 10px; padding: 12px 16px; margin: 10px 0;

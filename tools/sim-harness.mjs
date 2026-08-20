@@ -5,12 +5,24 @@
 import { Sim } from "../server/sim.js";
 import { PHASE, PS, TICK_DT, ARENA_W, ARENA_H } from "../shared/constants.js";
 import { BTN } from "../shared/protocol.js";
+import { shopItemById } from "../shared/shop.js";
+
+// bots shop like players: first affordable item, then ready-up
+function botShop(sim, ev) {
+  const p = sim.players.get(ev.to);
+  if (!p) return;
+  for (const id of ev.items) {
+    const it = shopItemById(id);
+    if (it && p.cores >= it.price) { sim.action(p, { t: "buy", id }); break; }
+  }
+  sim.action(p, { t: "shop_done" });
+}
 
 const SIM_MINUTES = Number(process.env.HARNESS_MINUTES || 5);
 
 function runScenario(nPlayers) {
   const sim = new Sim();
-  for (let i = 1; i <= nPlayers; i++) sim.addPlayer(i, `BOT${i}`, (i - 1) % 4);
+  for (let i = 1; i <= nPlayers; i++) sim.addPlayer(i, `BOT${i}`, (i - 1) % 8);
   sim.startRun();
 
   let maxWave = 0, gameovers = 0, kills = 0, ticks = 0;
@@ -62,6 +74,8 @@ function runScenario(nPlayers) {
       } else if (ev.t === "intermission") {
         const p = sim.players.values().next().value;
         if (sim.unbanked > 0 && Math.random() < 0.5) sim.action(p, { t: "bank" });
+      } else if (ev.t === "shop_offer") {
+        botShop(sim, ev);
       }
     }
     sim.events.length = 0;
@@ -93,7 +107,7 @@ function runScenario(nPlayers) {
 // scenarios above rarely get past the first boss in harness time.
 function runDeep() {
   const sim = new Sim();
-  for (let i = 1; i <= 4; i++) sim.addPlayer(i, `BOT${i}`, (i - 1) % 4);
+  for (let i = 1; i <= 4; i++) sim.addPlayer(i, `BOT${i}`, (i - 1) % 8);
   sim.startRun();
   let kills = 0;
   for (const wave of [7, 9, 12, 14, 15, 20, 25, 30, 42]) { // 30+/42: endless cycle
@@ -119,6 +133,7 @@ function runDeep() {
       for (const ev of sim.events) {
         if (ev.t === "kill") kills++;
         if (ev.t === "draft_offer") { const p = sim.players.get(ev.to); if (p) sim.action(p, { t: "pick", id: ev.offer[0] }); }
+        if (ev.t === "shop_offer") botShop(sim, ev);
         if (ev.t === "gameover" || ev.t === "victory") { const p = sim.players.values().next().value; sim.action(p, { t: "again" }); }
       }
       sim.events.length = 0;

@@ -58,6 +58,9 @@
     <!-- DRAFT (intermission) -->
     <section id="screen-draft" class="screen hidden compact">
       <h3 id="draft-title">WAVE CLEAR — DRAFT AN UPGRADE</h3>
+      <div class="row buttons">
+        <button id="btn-tab-shop" class="btn small shoptab hidden">⬡ SHOP</button>
+      </div>
       <div id="draft-locals"></div>
       <p id="class-grant" class="grant hidden"></p>
       <div id="draft-cards" class="cards"></div>
@@ -76,6 +79,17 @@
         <button id="btn-challenge" class="btn challenge-btn">⚔ CHALLENGE A FRIEND</button>
         <button id="btn-invite2" class="btn">🔗 INVITE</button>
       </div>
+    </section>
+
+    <!-- CORE SHOP (post-boss intermissions) -->
+    <section id="screen-shop" class="screen hidden">
+      <h3>⬡ CORE SHOP <span id="shop-cores" class="code"></span></h3>
+      <div id="shop-cards" class="cards shopgrid"></div>
+      <div class="row buttons">
+        <button id="btn-tab-draft" class="btn small">← DRAFT</button>
+        <button id="btn-shop-ready" class="btn primary">✔ READY</button>
+      </div>
+      <div id="shop-timer" class="timerbar"><i></i></div>
     </section>
 
     <!-- SETTINGS -->

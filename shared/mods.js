@@ -18,6 +18,8 @@
 //   hitFactor    multiplier kept on hit (default 0.5 = halved)
 //   rage         +50%/stack fire rate for 3s after taking a hit
 
+import { shopItemById } from "./shop.js";
+
 export function baseStats(pilot) {
   return {
     speed: pilot?.speed ?? 1,
@@ -35,7 +37,7 @@ export function baseStats(pilot) {
     blast: 0,
     reviveSpeed: 1,
     reviveRange: 1,
-    maxHp: 0,
+    maxHp: pilot?.maxHp ?? 0, // DAVE starts tanky
     iframeBonus: 1,
     thorns: 0,
     static: 0,
@@ -46,22 +48,48 @@ export function baseStats(pilot) {
     streakBomb: 0,
     hitFactor: 0.5,
     rage: 0,
-    // class-mod hooks (pilot signature upgrades, granted free each intermission)
-    abilityCdr: 0,     // seconds shaved off the 12s ability cooldown
-    blinkDist: 1,      // VANTA blink range multiplier
-    blinkShots: 0,     // VANTA extra volley bullets
-    blinkNova: 0,      // VANTA departure-point explosion stacks
-    flameR: 1,         // EMBER zone radius multiplier
-    flameDur: 1,       // EMBER zone duration multiplier
-    flameDps: 1,       // EMBER burn damage multiplier
-    napalm: 0,         // EMBER dash leaves a burning trail
-    aegisR: 1,         // HALO field radius multiplier
-    aegisDur: 1,       // HALO field duration multiplier
-    aegisHeal: 0,      // HALO field heals allies on cast
-    reviveDiscount: 1, // HALO revives cost this fraction of normal insurance
-    wellR: 1,          // ONYX well radius multiplier
-    wellDur: 1,        // ONYX well duration multiplier
-    wellDmg: 0,        // ONYX extra detonation damage
+    // class-mod & shop hooks (pilot signature upgrades and Core Shop items)
+    abilityCdr: 0,     // seconds shaved off the class ability cooldown
+    blinkDist: 1,      // BINK blink range multiplier
+    blinkShots: 0,     // BINK extra volley bullets
+    blinkNova: 0,      // BINK departure-point explosion stacks
+    blinkIframe: 0,    // BINK extra i-frames on blink (shop)
+    jitterMul: 1,      // BINK SMG spread multiplier (shop)
+    flameR: 1,         // BLAZE zone radius multiplier
+    flameDur: 1,       // BLAZE zone duration multiplier
+    flameDps: 1,       // BLAZE burn damage multiplier
+    napalm: 0,         // BLAZE dash leaves a burning trail
+    slugShot: 0,       // BLAZE shotgun → single heavy slug (shop)
+    burn: 0,           // BLAZE pellets ignite (shop): 2s DoT stacks
+    chokeMul: 1,       // BLAZE cone-width multiplier (shop)
+    auraR: 1,          // AMBER heal-aura radius multiplier
+    auraRate: 1,       // AMBER heal-aura speed multiplier
+    selfAura: 0,       // AMBER self-heal at full ally rate
+    sanctuary: 0,      // AMBER beacon heals allies near it (shop)
+    radiantAura: 0,    // AMBER aura damages enemies (shop)
+    beaconBlast: 0,    // AMBER warp detonates departure point (shop)
+    reviveDiscount: 1, // AMBER revives cost this fraction of normal insurance
+    wellR: 1,          // DAVE well radius multiplier
+    wellDur: 1,        // DAVE well duration multiplier
+    wellDmg: 0,        // DAVE extra detonation damage
+    cleave360: 0,      // DAVE cleave hits all around (shop)
+    aftershock: 0,     // DAVE cleave launches a shockwave slug (shop)
+    chainHops: 0,      // SPARKS extra chain jumps
+    chainDmgBonus: 0,  // SPARKS chain hop damage bonus (0.5 base + this)
+    pylonCount: 0,     // SPARKS extra pylons per cast
+    pylonTtlBonus: 0,  // SPARKS pylon duration bonus (s)
+    pylonDmgBonus: 0,  // SPARKS pylon zap damage bonus
+    turretCount: 0,    // RIGG extra turrets per cast
+    turretTtlMul: 1,   // RIGG turret lifetime multiplier
+    turretFireMul: 1,  // RIGG turret fire-rate multiplier
+    turretDmgMul: 1,   // RIGG turret damage multiplier
+    chillDurMul: 1,    // KELVIN chill duration multiplier
+    chillSlow: 0.55,   // KELVIN chilled-enemy speed factor (lower = colder)
+    shatter: 0,        // KELVIN chilled/frozen take +75% from you (shop)
+    frostRMul: 1,      // KELVIN Frost Nova radius multiplier
+    frostDurBonus: 0,  // KELVIN freeze duration bonus (s)
+    railShots: 0,      // HAWK extra rails in Triple Rail
+    headhunter: 0,     // HAWK +60% damage vs elites/bosses (shop)
   };
 }
 
@@ -69,28 +97,48 @@ export function baseStats(pilot) {
 // player is GRANTED one of these at random for their pilot — free, stacking,
 // on top of the drafted pick. They deepen the pilot identity over a run.
 export const CLASS_MODS = [
-  // VANTA — Blink Volley
+  // BINK — Blink Volley
   { id: "c_v_dist",  pilot: 0, name: "Long Blink",     desc: "Blink travels 40% further.",                    apply: s => { s.blinkDist *= 1.4; } },
   { id: "c_v_shots", pilot: 0, name: "Volley Plus",    desc: "Blink volley fires 6 extra bullets.",           apply: s => { s.blinkShots += 6; } },
   { id: "c_v_nova",  pilot: 0, name: "Echo Blink",     desc: "Blinking detonates your departure point.",      apply: s => { s.blinkNova += 1; } },
   { id: "c_v_cdr",   pilot: 0, name: "Coil Feedback",  desc: "Blink cooldown −2s.",                           apply: s => { s.abilityCdr += 2; } },
-  // EMBER — Flame Zone
+  // BLAZE — Flame Zone
   { id: "c_e_r",     pilot: 1, name: "Wider Burn",     desc: "Flame zone is 30% larger.",                     apply: s => { s.flameR *= 1.3; } },
   { id: "c_e_dur",   pilot: 1, name: "Longer Burn",    desc: "Flame zone lasts 50% longer.",                  apply: s => { s.flameDur *= 1.5; } },
   { id: "c_e_dps",   pilot: 1, name: "Hotter Burn",    desc: "Flame damage +75%.",                            apply: s => { s.flameDps *= 1.75; } },
   { id: "c_e_trail", pilot: 1, name: "Napalm Trail",   desc: "Dashing leaves a burning trail.",               apply: s => { s.napalm += 1; } },
   { id: "c_e_cdr",   pilot: 1, name: "Pilot Light",    desc: "Flame Zone cooldown −2s.",                      apply: s => { s.abilityCdr += 2; } },
-  // HALO — Aegis Field
-  { id: "c_h_r",     pilot: 2, name: "Wider Aegis",    desc: "Aegis Field is 30% larger.",                    apply: s => { s.aegisR *= 1.3; } },
-  { id: "c_h_dur",   pilot: 2, name: "Lasting Aegis",  desc: "Aegis Field lasts 40% longer.",                 apply: s => { s.aegisDur *= 1.4; } },
-  { id: "c_h_heal",  pilot: 2, name: "Mending Aegis",  desc: "Casting Aegis heals allies inside by 1.",       apply: s => { s.aegisHeal += 1; } },
+  // AMBER — Beacon Warp + Heal Aura
+  { id: "c_h_r",     pilot: 2, name: "Wider Aura",     desc: "Heal aura is 30% larger.",                      apply: s => { s.auraR *= 1.3; } },
+  { id: "c_h_dur",   pilot: 2, name: "Swift Mending",  desc: "Aura heals 35% faster.",                        apply: s => { s.auraRate *= 1.35; } },
+  { id: "c_h_heal",  pilot: 2, name: "Warm Light",     desc: "Your aura heals YOU at full speed too.",        apply: s => { s.selfAura += 1; } },
   { id: "c_h_rev",   pilot: 2, name: "Guardian Angel", desc: "Your revives cost half the banked score.",      apply: s => { s.reviveDiscount *= 0.5; } },
-  { id: "c_h_cdr",   pilot: 2, name: "Halo Charge",    desc: "Aegis cooldown −2s.",                           apply: s => { s.abilityCdr += 2; } },
-  // ONYX — Gravity Well
+  { id: "c_h_cdr",   pilot: 2, name: "Beacon Charge",  desc: "Beacon Warp cooldown −2s.",                     apply: s => { s.abilityCdr += 2; } },
+  // DAVE — Gravity Well
   { id: "c_o_r",     pilot: 3, name: "Deeper Well",    desc: "Gravity Well is 30% larger.",                   apply: s => { s.wellR *= 1.3; } },
   { id: "c_o_dur",   pilot: 3, name: "Singularity",    desc: "Gravity Well lasts 40% longer.",                apply: s => { s.wellDur *= 1.4; } },
   { id: "c_o_dmg",   pilot: 3, name: "Crushing Well",  desc: "Well detonation deals +2 damage.",              apply: s => { s.wellDmg += 2; } },
   { id: "c_o_cdr",   pilot: 3, name: "Dense Core",     desc: "Gravity Well cooldown −2s.",                    apply: s => { s.abilityCdr += 2; } },
+  // SPARKS — Arc gun + Tesla Pylon
+  { id: "c_s_volt",  pilot: 4, name: "Live Wire",      desc: "Chain hops hit 8% harder.",                     apply: s => { s.chainDmgBonus += 0.08; } },
+  { id: "c_s_dur",   pilot: 4, name: "Capacitor",      desc: "Pylons last +2s.",                              apply: s => { s.pylonTtlBonus += 2; } },
+  { id: "c_s_dmg",   pilot: 4, name: "Amped Coils",    desc: "Pylon zaps deal +1 damage.",                    apply: s => { s.pylonDmgBonus += 1; } },
+  { id: "c_s_cdr",   pilot: 4, name: "Fast Discharge", desc: "Tesla Pylon cooldown −2s.",                     apply: s => { s.abilityCdr += 2; } },
+  // RIGG — Auto-Turret
+  { id: "c_r_ttl",   pilot: 5, name: "Field Repairs",  desc: "Turrets last +2s.",                             apply: s => { s.turretTtlMul *= 1.25; } },
+  { id: "c_r_fire",  pilot: 5, name: "Rapid Servo",    desc: "Turrets fire 20% faster.",                      apply: s => { s.turretFireMul *= 1.2; } },
+  { id: "c_r_dmg",   pilot: 5, name: "Better Ammo",    desc: "Turret damage +25%.",                           apply: s => { s.turretDmgMul *= 1.25; } },
+  { id: "c_r_cdr",   pilot: 5, name: "Quick Deploy",   desc: "Auto-Turret cooldown −2s.",                     apply: s => { s.abilityCdr += 2; } },
+  // KELVIN — Chill Lance + Frost Nova
+  { id: "c_k_dur",   pilot: 6, name: "Lingering Cold", desc: "Chill lasts 35% longer.",                       apply: s => { s.chillDurMul *= 1.35; } },
+  { id: "c_k_nova",  pilot: 6, name: "Expanding Front",desc: "Frost Nova 15% larger.",                        apply: s => { s.frostRMul *= 1.15; } },
+  { id: "c_k_dmg",   pilot: 6, name: "Ice Pick",       desc: "Lance damage +15%.",                            apply: s => { s.dmg *= 1.15; } },
+  { id: "c_k_cdr",   pilot: 6, name: "Cold Snap",      desc: "Frost Nova cooldown −2s.",                      apply: s => { s.abilityCdr += 2; } },
+  // HAWK — Railgun + Triple Rail
+  { id: "c_hk_dmg",  pilot: 7, name: "Heavier Sabot",  desc: "Rail damage +12%.",                             apply: s => { s.dmg *= 1.12; } },
+  { id: "c_hk_vel",  pilot: 7, name: "Overcharged Rails", desc: "+20% rail velocity.",                        apply: s => { s.bulletSpeed *= 1.2; } },
+  { id: "c_hk_pier", pilot: 7, name: "Punch Through",  desc: "Rails pierce +1 more enemy.",                   apply: s => { s.pierce += 1; } },
+  { id: "c_hk_cdr",  pilot: 7, name: "Rapid Charge",   desc: "Triple Rail cooldown −2s.",                     apply: s => { s.abilityCdr += 2; } },
 ];
 
 export function classModsFor(pilot) { return CLASS_MODS.filter(m => m.pilot === pilot); }
@@ -144,12 +192,12 @@ export const MODS = [
 ];
 
 export function modById(id) {
-  return MODS.find(m => m.id === id) ?? CLASS_MODS.find(m => m.id === id);
+  return MODS.find(m => m.id === id) ?? CLASS_MODS.find(m => m.id === id) ?? shopItemById(id);
 }
 
 export function computeStats(pilot, modIds) {
   const s = baseStats(pilot);
-  for (const id of modIds) modById(id)?.apply(s);
+  for (const id of modIds) modById(id)?.apply?.(s);
   return s;
 }
 

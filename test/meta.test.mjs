@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { MODS, CLASS_MODS, classModsFor, modById, computeStats, baseStats, draftOffer } from "../shared/mods.js";
+import { SHOP_ITEMS } from "../shared/shop.js";
 import { ENEMIES } from "../shared/enemies.js";
 import { EK, PILOTS, WAVE } from "../shared/constants.js";
 import { makeWave } from "../server/waves.js";
@@ -29,7 +30,7 @@ test("the full 40-mod pool exists and every mod applies cleanly", () => {
 });
 
 test("class mods: every pilot has a pool, all apply cleanly, drafts never offer them", () => {
-  for (let pilot = 0; pilot < 4; pilot++) {
+  for (let pilot = 0; pilot < PILOTS.length; pilot++) {
     const pool = classModsFor(pilot);
     assert.ok(pool.length >= 4, `pilot ${pilot} has only ${pool.length} class mods`);
     for (const m of pool) {
@@ -43,9 +44,22 @@ test("class mods: every pilot has a pool, all apply cleanly, drafts never offer 
   }
   const classIds = new Set(CLASS_MODS.map(m => m.id));
   assert.equal(classIds.size, CLASS_MODS.length, "duplicate class mod ids");
+  // id uniqueness across ALL pools (draft + class + shop share modById)
+  const union = [...MODS, ...CLASS_MODS, ...SHOP_ITEMS].map(m => m.id);
+  assert.equal(new Set(union).size, union.length, "duplicate ids across MODS/CLASS_MODS/SHOP_ITEMS");
+  // no class or shop entry may invent a stat key baseStats doesn't declare
+  const base = Object.keys(baseStats(PILOTS[0]));
+  for (const m of [...CLASS_MODS, ...SHOP_ITEMS]) {
+    const s = baseStats(PILOTS[0]);
+    m.apply(s);
+    for (const k of Object.keys(s)) {
+      assert.ok(base.includes(k) || ["dashPenalty", "dashBonus"].includes(k), `${m.id} invented stat "${k}"`);
+    }
+  }
   for (let i = 0; i < 200; i++) {
     for (const id of draftOffer(Math.random, 20)) {
       assert.ok(!classIds.has(id), "draft offered a class mod — those are grant-only");
+      assert.ok(!id.startsWith("s_"), "draft offered a shop item — those are bought");
     }
   }
 });

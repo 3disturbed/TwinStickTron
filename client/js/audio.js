@@ -73,6 +73,17 @@ export const sfx = {
   pick() { blip(523, 0.1, "triangle", 0.5); },
   pickup() { blip(880, 0.07, "sine", 0.5); setTimeout(() => blip(1320, 0.09, "sine", 0.5), 70); },
   use() { blip(660, 0.12, "triangle", 0.7, 400); noise(0.08, 0.3); },
+  // class-weapon voices
+  smg() { blip(980, 0.03, "square", 0.18, -200); },
+  boom() { noise(0.22, 0.9); blip(120, 0.18, "sawtooth", 0.8, -60); },
+  swing() { noise(0.12, 0.5); blip(240, 0.14, "sine", 0.5, 240); },
+  lance() { blip(700, 0.08, "triangle", 0.4, -350); },
+  rail() { blip(180, 0.22, "sawtooth", 0.9, 900); noise(0.1, 0.4); },
+  arc() { blip(1200, 0.05, "square", 0.3, -500); },
+  zap() { blip(1500, 0.06, "square", 0.5, -900); },
+  freeze() { blip(1800, 0.3, "sine", 0.6, -1200); },
+  warp() { blip(300, 0.2, "sine", 0.7, 800); setTimeout(() => blip(900, 0.15, "sine", 0.5, -400), 120); },
+  buy() { blip(1046, 0.08, "sine", 0.6); setTimeout(() => blip(1568, 0.14, "sine", 0.6), 90); },
   over() { blip(196, 0.5, "sawtooth", 0.9, -80); setTimeout(() => blip(147, 0.8, "sawtooth", 0.9, -50), 350); },
   win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => blip(f, 0.25, "triangle", 0.8), i * 140)); },
 };

@@ -4,8 +4,10 @@
 
 import {
   ARENA_W, ARENA_H, WALL_PAD, PLAYER, MULT, WAVE, PHASE, PS, EK, ZK,
-  PILOTS, REVIVE_COST_PER_WAVE, TICK_DT, ORBITAL, PICKUP, clamp,
+  PILOTS, REVIVE_COST_PER_WAVE, TICK_DT, ORBITAL, PICKUP,
+  AURA, TURRET, PYLON, clamp,
 } from "../shared/constants.js";
+import { shopFor, shopItemById } from "../shared/shop.js";
 import { CK, rollConsumable } from "../shared/consumables.js";
 import { stepPlayerMovement, startDash } from "../shared/movement.js";
 import { spawnPattern, PT } from "../shared/patterns.js";
@@ -48,17 +50,22 @@ export class Sim {
     this.pkid = 1;
     this.stasisT = 0;
     this.rngDrop = Math.random; // injectable for tests
+    this.turrets = [];          // RIGG's deployables (visuals ride ZK.TURRET zones)
+    this.shopOpen = false;      // post-boss intermissions open the Core Shop
   }
 
   hpMax(p) { return Math.max(1, PLAYER.MAX_HP + (p.stats.maxHp | 0)); }
 
   // ---------- roster ----------
   addPlayer(id, name, pilot) {
+    pilot = clamp(pilot | 0, 0, PILOTS.length - 1);
     const p = {
-      id, name, pilot: clamp(pilot | 0, 0, PILOTS.length - 1),
+      id, name, pilot,
+      weapon: PILOTS[pilot].weapon,
       x: ARENA_W / 2 + (id - 2) * 60, y: ARENA_H / 2, vx: 0, vy: 0,
       aim: 0, hp: PLAYER.MAX_HP, state: this.phase === PHASE.WAVE ? PS.SPECTATING : PS.ALIVE,
       mods: [], stats: computeStats(PILOTS[pilot], []),
+      cores: 0, beacon: null, auraP: 0, shopDone: true,
       dashT: 0, dashCd: 0, dashStock: 1, fireCd: 0, abilCd: 0,
       iframesT: 0, bombs: PLAYER.START_BOMBS, lives: PLAYER.SOLO_LIVES,
       downedT: 0, reviveP: 0, respawnT: 0, beingRevived: false,
@@ -67,6 +74,7 @@ export class Sim {
       buttonsPrev: 0, input: { seq: 0, mx: 0, my: 0, ax: 0, ay: 0, buttons: 0 },
       kills: 0, picked: true,
     };
+    p.hp = this.hpMax(p); // DAVE starts with his tank HP
     this.players.set(id, p);
     return p;
   }
@@ -97,7 +105,11 @@ export class Sim {
       p.x = ARENA_W / 2 + (i++ - this.players.size / 2) * 70; p.y = ARENA_H / 2;
       p.vx = p.vy = 0; p.dashCd = 0; p.dashStock = p.stats.dashCharges; p.abilCd = 0; p.iframesT = 2;
       p.dashDmgT = 0; p.rageT = 0; p.cons = []; p.frenzyT = 0;
+      p.cores = 0; p.beacon = null; p.auraP = 0; p.shopDone = true;
+      p.weapon = PILOTS[p.pilot].weapon; // pilot may have changed in the lobby
     }
+    this.turrets.length = 0;
+    this.shopOpen = false;
     this.startWave(1);
   }
 
@@ -110,6 +122,7 @@ export class Sim {
   startWave(n) {
     this.wave = n;
     this.phase = PHASE.WAVE;
+    this.shopOpen = false;
     this.script = makeWave(n, Math.max(1, this.activeCount()), this.waveRng(n));
     this.scriptT = 0;
     this.offers.clear();
@@ -129,16 +142,28 @@ export class Sim {
 
   beginIntermission() {
     this.phase = PHASE.INTERMISSION;
-    this.phaseT = WAVE.INTERMISSION_S;
+    const postBoss = this.wave % WAVE.BOSS_EVERY === 0;
+    this.shopOpen = postBoss;                       // the Core Shop opens after bosses
+    this.phaseT = postBoss ? 40 : WAVE.INTERMISSION_S;
     this.eBullets.length = 0;
-    if (this.wave % WAVE.BOSS_EVERY === 0) {
+    if (postBoss) {
       for (const p of this.players.values()) {
         if (p.state === PS.ALIVE) p.hp = Math.min(this.hpMax(p), p.hp + 1);
         p.bombs = Math.min(PLAYER.MAX_BOMBS, p.bombs + 1);
       }
     }
     for (const p of this.players.values()) {
-      if (p.state === PS.SPECTATING) continue;
+      if (p.state === PS.SPECTATING) { p.shopDone = true; continue; }
+      // wave-clear stipend BEFORE offers, so the storefront shows real balance
+      p.cores = Math.min(65535, p.cores + 5 + this.wave);
+      p.shopDone = !this.shopOpen;
+      if (this.shopOpen) {
+        this.emit({
+          t: "shop_offer", to: p.id,
+          items: shopFor(p.pilot).map(it => it.id),
+          cores: p.cores, wave: this.wave,
+        });
+      }
       // free random pilot-signature upgrade, on top of the draft (stacks)
       const pool = classModsFor(p.pilot);
       if (pool.length) {
@@ -178,11 +203,43 @@ export class Sim {
         p.dashStock = Math.min(p.stats.dashCharges, p.dashStock + (p.stats.dashCharges > 1 ? 1 : 0));
         p.picked = true;
         this.emit({ t: "picked", who: p.id, mod: a.id });
-        let all = true;
-        for (const q of this.players.values()) if (q.state !== PS.SPECTATING && !q.picked) all = false;
-        if (all) this.phaseT = Math.min(this.phaseT, 3);
+        this.maybeShortenIntermission();
       }
+      return;
     }
+    // ---- Core Shop (post-boss intermissions only) ----
+    if (a.t === "buy" && this.phase === PHASE.INTERMISSION && this.shopOpen) {
+      const item = shopItemById(a.id);
+      if (!item) return;
+      if (item.pilot !== null && item.pilot !== p.pilot) {
+        this.emit({ t: "shop_err", to: p.id, why: "wrong_class" }); return;
+      }
+      if (item.once && p.mods.includes(item.id)) {
+        this.emit({ t: "shop_err", to: p.id, why: "owned" }); return;
+      }
+      if (p.cores < item.price) {
+        this.emit({ t: "shop_err", to: p.id, why: "poor" }); return;
+      }
+      p.cores -= item.price;
+      p.mods.push(item.id);
+      p.stats = computeStats(PILOTS[p.pilot], p.mods);
+      if (item.heal) p.hp += item.heal;
+      if (item.bombs) p.bombs = Math.min(PLAYER.MAX_BOMBS, p.bombs + item.bombs);
+      p.hp = Math.max(1, Math.min(this.hpMax(p), p.hp));
+      this.emit({ t: "bought", who: p.id, mod: item.id, cores: p.cores });
+      return;
+    }
+    if (a.t === "shop_done" && this.phase === PHASE.INTERMISSION) {
+      p.shopDone = true;
+      this.maybeShortenIntermission();
+    }
+  }
+
+  maybeShortenIntermission() {
+    for (const q of this.players.values()) {
+      if (q.state !== PS.SPECTATING && (!q.picked || !q.shopDone)) return;
+    }
+    this.phaseT = Math.min(this.phaseT, 3);
   }
 
   // ---------- main step ----------
@@ -216,6 +273,7 @@ export class Sim {
     this.stepEnemyBullets(dt);
     this.stepPlayerBullets(dt);
     this.stepOrbitals(dt);
+    this.stepTurrets(dt);
     this.stepZones(dt);
     this.stepPickups(dt);
     this.stepReviveAndRespawn(dt);
@@ -286,7 +344,7 @@ export class Sim {
       if ((btn & BTN.FIRE) && p.fireCd <= 0) {
         this.fire(p);
         const rate = p.stats.fire * (p.rageT > 0 ? 1 + 0.5 * p.stats.rage : 1) * (p.frenzyT > 0 ? 2 : 1);
-        p.fireCd = PLAYER.FIRE_CD / rate;
+        p.fireCd = p.weapon.cd / rate; // the class weapon owns the cadence
       }
       // use consumable (edge) — works in intermission too, hence outside combat
       if ((btn & BTN.USE) && !(prev & BTN.USE) && p.cons.length > 0) {
@@ -316,23 +374,134 @@ export class Sim {
       }
       p.buttonsPrev = btn;
     }
+    this.stepAuras(dt, combat);
   }
 
+  // AMBER's healing aura — moves with her, works between waves too.
+  stepAuras(dt, combat) {
+    for (const amber of this.players.values()) {
+      if (amber.pilot !== 2 || amber.state !== PS.ALIVE) continue;
+      const s = amber.stats;
+      const r = AURA.R * s.auraR;
+      for (const q of this.players.values()) {
+        if (q.state !== PS.ALIVE) continue;
+        if (Math.hypot(q.x - amber.x, q.y - amber.y) > r) continue;
+        const period = q === amber && !s.selfAura ? AURA.SELF_S : AURA.ALLY_S;
+        q.auraP += (dt / period) * s.auraRate;
+        if (q.auraP >= 1) {
+          q.auraP = 0;
+          if (q.hp < this.hpMax(q)) {
+            q.hp++;
+            this.emit({ t: "aura_heal", who: q.id, by: amber.id });
+          }
+        }
+      }
+      if (combat && s.radiantAura > 0) { // shop: the light burns
+        for (const e of this.enemies.values()) {
+          if (Math.hypot(e.x - amber.x, e.y - amber.y) < r) this.damageEnemy(e, 1 * s.radiantAura * dt, amber);
+        }
+      }
+    }
+  }
+
+  // RIGG's auto-turrets: real aimbots, owner-credited bullets.
+  stepTurrets(dt) {
+    for (let i = this.turrets.length - 1; i >= 0; i--) {
+      const t = this.turrets[i];
+      t.ttl -= dt;
+      if (t.ttl <= 0) { this.turrets.splice(i, 1); continue; }
+      const owner = this.players.get(t.owner);
+      if (!owner) { this.turrets.splice(i, 1); continue; }
+      t.fireCd -= dt;
+      if (t.fireCd > 0) continue;
+      let tgt = null, td = TURRET.RANGE;
+      for (const e of this.enemies.values()) {
+        if (e.phased) continue;
+        const d = Math.hypot(e.x - t.x, e.y - t.y);
+        if (d < td) { td = d; tgt = e; }
+      }
+      if (!tgt) continue;
+      t.fireCd = TURRET.CD / owner.stats.turretFireMul;
+      const a = Math.atan2(tgt.y - t.y, tgt.x - t.x);
+      this.pBullets.push({
+        id: this.bid = (this.bid % 65000) + 1,
+        x: t.x + Math.cos(a) * 14, y: t.y + Math.sin(a) * 14,
+        vx: Math.cos(a) * 640, vy: Math.sin(a) * 640,
+        dmg: TURRET.DMG * owner.stats.dmg * owner.stats.turretDmgMul,
+        pierce: 0, ricochet: 0, life: 1.2, owner: t.owner,
+        chill: 0, chain: 0, burn: 0,
+      });
+    }
+  }
+
+  // Class-weapon dispatch (SDD §2.2/§2.8): every class attacks differently.
   fire(p) {
-    const n = 1 + p.stats.split;
-    const speed = PLAYER.BULLET_SPEED * p.stats.bulletSpeed;
-    const dmg = p.stats.dmg * (p.dashDmgT > 0 && p.stats.dashDmg > 0 ? 1 + 0.3 * p.stats.dashDmg : 1);
-    for (let i = 0; i < n; i++) {
-      const off = n === 1 ? 0 : (i - (n - 1) / 2) * 0.14;
-      const a = p.aim + off;
+    const w = p.weapon, s = p.stats;
+    const dmgMul = p.dashDmgT > 0 && s.dashDmg > 0 ? 1 + 0.3 * s.dashDmg : 1;
+    if (w.kind === "cleave") { this.cleave(p, dmgMul); return; }
+
+    let count = 1 + s.split;
+    let spread = count > 1 ? 0.14 : 0;      // split-mod fan spacing
+    let dmg = w.dmg * s.dmg * dmgMul;
+    let lifeMul = 1;
+    if (w.kind === "shotgun") {
+      if (s.slugShot) { count = 1; spread = 0; dmg = 5 * s.dmg * dmgMul; lifeMul = 2.5; }
+      else {
+        count = w.pellets + s.split;
+        spread = (w.spread * s.chokeMul * 2) / Math.max(1, count - 1);
+      }
+    }
+    const jitter = (w.jitter ?? 0) * s.jitterMul;
+    const speed = PLAYER.BULLET_SPEED * (w.speedMul ?? 1) * s.bulletSpeed;
+    const life = (w.life ?? PLAYER.BULLET_LIFE) * s.bulletLife * lifeMul;
+    for (let i = 0; i < count; i++) {
+      const off = count === 1 ? 0 : (i - (count - 1) / 2) * spread;
+      const a = p.aim + off + (jitter ? (Math.random() - 0.5) * 2 * jitter : 0);
       this.pBullets.push({
         id: this.bid = (this.bid % 65000) + 1,
         x: p.x + Math.cos(a) * 18, y: p.y + Math.sin(a) * 18,
         vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
-        dmg, pierce: p.stats.pierce, ricochet: p.stats.ricochet,
-        life: PLAYER.BULLET_LIFE * p.stats.bulletLife, owner: p.id,
+        dmg, pierce: (w.pierce ?? 0) + s.pierce, ricochet: s.ricochet,
+        life, owner: p.id,
+        chill: w.chill ? w.chill * s.chillDurMul : 0,
+        chain: w.chain ? w.chain + s.chainHops : 0, chainR: w.chainR ?? 140,
+        burn: w.kind === "shotgun" ? s.burn : 0,
       });
     }
+  }
+
+  // DAVE's melee arc — no projectile; draft dmg/fire/Echo mods still apply.
+  cleave(p, dmgMul) {
+    const w = p.weapon, s = p.stats;
+    const dmg = w.dmg * s.dmg * dmgMul;
+    const full = s.cleave360 > 0;
+    const arcHalf = full ? Math.PI : w.arcHalf;
+    for (const e of this.enemies.values()) {
+      if (e.phased) continue;
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      if (d > w.arcR + e.def.radius) continue;
+      if (!full) {
+        let da = Math.atan2(e.y - p.y, e.x - p.x) - p.aim;
+        da = Math.atan2(Math.sin(da), Math.cos(da)); // wrap to [-π, π]
+        if (Math.abs(da) > arcHalf) continue;
+      }
+      const nx = (e.x - p.x) / (d || 1), ny = (e.y - p.y) / (d || 1);
+      const died = this.damageEnemy(e, dmg, p);
+      if (!died && this.enemies.has(e.id)) {
+        e.x = clamp(e.x + nx * w.knockback, WALL_PAD, ARENA_W - WALL_PAD);
+        e.y = clamp(e.y + ny * w.knockback, WALL_PAD, ARENA_H - WALL_PAD);
+      }
+    }
+    if (s.aftershock > 0) { // shop: cleave launches a shockwave slug
+      this.pBullets.push({
+        id: this.bid = (this.bid % 65000) + 1,
+        x: p.x + Math.cos(p.aim) * 20, y: p.y + Math.sin(p.aim) * 20,
+        vx: Math.cos(p.aim) * 500, vy: Math.sin(p.aim) * 500,
+        dmg: 2 * s.dmg, pierce: 2, ricochet: 0, life: 0.9, owner: p.id,
+        chill: 0, chain: 0, burn: 0,
+      });
+    }
+    this.emit({ t: "cleave", who: p.id, x: Math.round(p.x), y: Math.round(p.y), aim: Math.round(p.aim * 100) / 100, r: w.arcR, full });
   }
 
   smartBomb(p) {
@@ -346,9 +515,9 @@ export class Sim {
 
   ability(p) {
     const s = p.stats;
-    p.abilCd = Math.max(5, PLAYER.ABILITY_CD - s.abilityCdr);
+    let cd = Math.max(2, PILOTS[p.pilot].abilityCd - s.abilityCdr);
     const aim = p.aim;
-    if (p.pilot === 0) { // VANTA — Blink Volley
+    if (p.pilot === 0) { // BINK — Blink Volley
       if (s.blinkNova > 0) { // Echo Blink: detonate the departure point
         this.zones.push({ kind: ZK.BLAST, x: p.x, y: p.y, r: 100, ttl: 0.25 });
         for (const e of this.enemies.values()) {
@@ -357,7 +526,7 @@ export class Sim {
       }
       p.x = clamp(p.x + Math.cos(aim) * 180 * s.blinkDist, WALL_PAD, ARENA_W - WALL_PAD);
       p.y = clamp(p.y + Math.sin(aim) * 180 * s.blinkDist, WALL_PAD, ARENA_H - WALL_PAD);
-      p.iframesT = Math.max(p.iframesT, 0.3);
+      p.iframesT = Math.max(p.iframesT, 0.3 + s.blinkIframe);
       const shots = 12 + s.blinkShots;
       for (let i = 0; i < shots; i++) {
         const a = (i / shots) * Math.PI * 2;
@@ -372,23 +541,83 @@ export class Sim {
         kind: ZK.FLAME, x: p.x + Math.cos(aim) * 120, y: p.y + Math.sin(aim) * 120,
         r: 90 * s.flameR, ttl: 4 * s.flameDur, owner: p.id,
       });
-    } else if (p.pilot === 2) { // HALO — Aegis Field
-      const r = 220 * s.aegisR;
-      this.zones.push({ kind: ZK.AEGIS, x: p.x, y: p.y, r, ttl: 6 * s.aegisDur, owner: p.id });
-      if (s.aegisHeal > 0) { // Mending Aegis
-        for (const q of this.players.values()) {
-          if (q.state === PS.ALIVE && Math.hypot(q.x - p.x, q.y - p.y) < r) {
-            q.hp = Math.min(this.hpMax(q), q.hp + s.aegisHeal);
-          }
+    } else if (p.pilot === 2) { // AMBER — Beacon Warp (two-phase)
+      if (!p.beacon) { // phase 1: drop the beacon, tiny re-arm
+        p.beacon = { x: p.x, y: p.y };
+        this.zones.push({ kind: ZK.BEACON, x: p.x, y: p.y, r: 30, ttl: 25, owner: p.id, healT: 4 });
+        cd = 0.25;
+        this.emit({ t: "ability", who: p.id, pilot: p.pilot, phase: 1 });
+        p.abilCd = cd;
+        return;
+      }
+      // phase 2: warp home
+      const fx = p.x, fy = p.y;
+      p.x = p.beacon.x; p.y = p.beacon.y; p.vx = p.vy = 0;
+      p.iframesT = Math.max(p.iframesT, 0.3);
+      if (s.beaconBlast > 0) { // shop: detonate the departure point
+        this.zones.push({ kind: ZK.BLAST, x: fx, y: fy, r: 120, ttl: 0.25 });
+        for (const e of this.enemies.values()) {
+          if (Math.hypot(e.x - fx, e.y - fy) < 120) this.damageEnemy(e, 3, p);
         }
       }
-    } else if (p.pilot === 3) { // ONYX — Gravity Well
+      p.beacon = null;
+      this.zones = this.zones.filter(z => !(z.kind === ZK.BEACON && z.owner === p.id));
+      this.emit({ t: "ability", who: p.id, pilot: p.pilot, phase: 2 });
+      p.abilCd = cd;
+      return;
+    } else if (p.pilot === 3) { // DAVE — Gravity Well
       this.zones.push({
         kind: ZK.WELL, x: clamp(p.x + Math.cos(aim) * 250, WALL_PAD, ARENA_W - WALL_PAD),
         y: clamp(p.y + Math.sin(aim) * 250, WALL_PAD, ARENA_H - WALL_PAD),
         r: 130 * s.wellR, ttl: 2.5 * s.wellDur, owner: p.id,
       });
+    } else if (p.pilot === 4) { // SPARKS — Tesla Pylon(s)
+      const n = 1 + s.pylonCount;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        this.zones.push({
+          kind: ZK.PYLON,
+          x: clamp(p.x + (n > 1 ? Math.cos(a) * 70 : 0), WALL_PAD, ARENA_W - WALL_PAD),
+          y: clamp(p.y + (n > 1 ? Math.sin(a) * 70 : 0), WALL_PAD, ARENA_H - WALL_PAD),
+          r: PYLON.R, ttl: PYLON.TTL + s.pylonTtlBonus, owner: p.id, zapT: 0.3,
+        });
+      }
+    } else if (p.pilot === 5) { // RIGG — Auto-Turret(s)
+      const n = 1 + s.turretCount;
+      for (let i = 0; i < n; i++) {
+        const tx = clamp(p.x + (i - (n - 1) / 2) * 50, WALL_PAD, ARENA_W - WALL_PAD);
+        const ty = clamp(p.y + 26, WALL_PAD, ARENA_H - WALL_PAD);
+        const ttl = TURRET.TTL * s.turretTtlMul;
+        this.turrets.push({ owner: p.id, x: tx, y: ty, ttl, fireCd: 0.3 });
+        this.zones.push({ kind: ZK.TURRET, x: tx, y: ty, r: 16, ttl, owner: p.id });
+      }
+    } else if (p.pilot === 6) { // KELVIN — Frost Nova
+      const r = 220 * s.frostRMul;
+      this.zones.push({ kind: ZK.BLAST, x: p.x, y: p.y, r, ttl: 0.3 });
+      for (const e of this.enemies.values()) {
+        if (Math.hypot(e.x - p.x, e.y - p.y) < r) {
+          e.stunT = Math.max(e.stunT, 1.5 + s.frostDurBonus);
+          e.slowT = Math.max(e.slowT, 3);
+          e.slowF = Math.min(e.slowF ?? 1, s.chillSlow);
+        }
+      }
+    } else if (p.pilot === 7) { // HAWK — Triple Rail
+      const shots = 3 + s.railShots;
+      const w = p.weapon;
+      const speed = PLAYER.BULLET_SPEED * (w.speedMul ?? 1) * s.bulletSpeed;
+      for (let i = 0; i < shots; i++) {
+        const a = aim + (i - (shots - 1) / 2) * 0.105;
+        this.pBullets.push({
+          id: this.bid = (this.bid % 65000) + 1,
+          x: p.x + Math.cos(a) * 20, y: p.y + Math.sin(a) * 20,
+          vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+          dmg: w.dmg * s.dmg, pierce: (w.pierce ?? 0) + s.pierce, ricochet: 0,
+          life: PLAYER.BULLET_LIFE * s.bulletLife, owner: p.id,
+          chill: 0, chain: 0, burn: 0,
+        });
+      }
     }
+    p.abilCd = cd;
     this.emit({ t: "ability", who: p.id, pilot: p.pilot });
   }
 
@@ -560,6 +789,7 @@ export class Sim {
       sinePhase: Math.random() * Math.PI * 2, t: 0,
       enraged: false, spokeAngle: Math.random() * Math.PI * 2,
       contactCd: 0,
+      slowT: 0, stunT: 0, slowF: 1, burnT: 0, burnStacks: 0, burnBy: 0,
       // sniper
       aiming: false, aimT: 0, lockX: 0, lockY: 0,
       // ghost
@@ -597,6 +827,15 @@ export class Sim {
     for (const e of this.enemies.values()) {
       e.t += dt;
       e.contactCd = Math.max(0, e.contactCd - dt);
+      // per-enemy statuses (KELVIN chill/freeze, BLAZE burn)
+      e.slowT = Math.max(0, e.slowT - dt);
+      e.stunT = Math.max(0, e.stunT - dt);
+      if (e.burnT > 0) {
+        e.burnT -= dt;
+        this.damageEnemy(e, 0.8 * e.burnStacks * dt, this.players.get(e.burnBy));
+        if (!this.enemies.has(e.id)) continue; // burned to death mid-loop
+      }
+      const eslow = slow * (e.stunT > 0 ? 0 : e.slowT > 0 ? e.slowF : 1);
       const def = e.def;
       const target = this.nearestAlive(e.x, e.y);
       const ai = def.ai;
@@ -715,13 +954,13 @@ export class Sim {
         if (Math.floor(e.t / 7) > Math.floor((e.t - dt) / 7)) this.spawnAtEdge(EK.GHOST);
       }
 
-      e.x = clamp(e.x + e.vx * slow * dt, WALL_PAD, ARENA_W - WALL_PAD);
-      e.y = clamp(e.y + e.vy * slow * dt, WALL_PAD, ARENA_H - WALL_PAD);
+      e.x = clamp(e.x + e.vx * eslow * dt, WALL_PAD, ARENA_W - WALL_PAD);
+      e.y = clamp(e.y + e.vy * eslow * dt, WALL_PAD, ARENA_H - WALL_PAD);
 
       // sniper aim/fire cycle (outside movement so freezing works)
-      if (ai === "sniper" && target) {
+      if (ai === "sniper" && target && e.stunT <= 0) {
         if (!e.aiming) {
-          e.fireT -= dt * slow;
+          e.fireT -= dt * eslow;
           if (e.fireT <= 0) {
             e.aiming = true; e.aimT = def.aimTime;
             e.lockX = target.x; e.lockY = target.y;
@@ -736,9 +975,9 @@ export class Sim {
         }
       }
 
-      // generic pattern firing
-      if (def.fireEvery && target && ai !== "sniper" && ai !== "ghost") {
-        e.fireT -= dt * slow;
+      // generic pattern firing (frozen enemies don't fire)
+      if (def.fireEvery && target && ai !== "sniper" && ai !== "ghost" && e.stunT <= 0) {
+        e.fireT -= dt * eslow;
         if (e.fireT <= 0) {
           e.fireT = def.fireEvery * (e.enraged ? 0.55 : 1);
           const aimA = Math.atan2(target.y - e.y, target.x - e.x);
@@ -859,6 +1098,29 @@ export class Sim {
           }
           const killer = this.players.get(b.owner);
           const died = this.damageEnemy(e, b.dmg, killer, aoeQueue);
+          if (!died && this.enemies.has(e.id)) {
+            // KELVIN chill / BLAZE burn ride the bullet
+            if (b.chill > 0) {
+              e.slowT = Math.max(e.slowT, b.chill);
+              e.slowF = Math.min(e.slowF, killer?.stats.chillSlow ?? 0.55);
+            }
+            if (b.burn > 0) { e.burnT = 2; e.burnStacks = b.burn; e.burnBy = b.owner; }
+          }
+          // SPARKS chain lightning: one volley of hops from the impact point
+          if (b.chain > 0) {
+            let hops = b.chain;
+            const cDmg = b.dmg * (0.5 + (killer?.stats.chainDmgBonus ?? 0));
+            const hx = b.x, hy = b.y;
+            for (const o of this.enemies.values()) {
+              if (hops <= 0) break;
+              if (o === e || o.phased) continue;
+              if (Math.hypot(o.x - hx, o.y - hy) < (b.chainR ?? 140)) {
+                hops--;
+                this.zones.push({ kind: ZK.BLAST, x: o.x, y: o.y, r: 18, ttl: 0.15 });
+                this.damageEnemy(o, cDmg, killer, aoeQueue);
+              }
+            }
+          }
           if (died || b.pierce <= 0) { this.pBullets.splice(i, 1); }
           else b.pierce--;
           break;
@@ -878,6 +1140,10 @@ export class Sim {
     if (e.phased) return false;
     if (e.def.ai === "boss_foundry" && !e.doorOpen) return false;
     if (this.isShielded(e)) return false;
+    if (killer) { // shop damage modifiers
+      if (killer.stats.headhunter > 0 && (e.def.boss || e.def.hp >= 4)) dmg *= 1.6;
+      if (killer.stats.shatter > 0 && (e.slowT > 0 || e.stunT > 0)) dmg *= 1.75;
+    }
     e.hp -= dmg;
     if (e.hp > 0) return false;
     this.enemies.delete(e.id);
@@ -891,6 +1157,7 @@ export class Sim {
     this.sinceKill = 0;
     if (killer) {
       killer.kills++;
+      killer.cores = Math.min(65535, killer.cores + (def.coreValue ?? 0));
       if (killer.stats.bloodrush > 0) killer.dashCd = Math.max(0, killer.dashCd - 0.15 * killer.stats.bloodrush);
       if (killer.stats.streakBomb > 0 && killer.kills % 25 === 0) {
         killer.bombs = Math.min(PLAYER.MAX_BOMBS, killer.bombs + killer.stats.streakBomb);
@@ -951,6 +1218,37 @@ export class Sim {
             e.y += ((z.y - e.y) / d) * 140 * dt;
           }
         }
+      } else if (z.kind === ZK.PYLON) {
+        // SPARKS' tesla pylon: zap the nearest enemy in range on a cadence
+        z.zapT -= dt;
+        if (z.zapT <= 0) {
+          z.zapT = PYLON.CD;
+          const owner = this.players.get(z.owner);
+          let tgt = null, td = z.r;
+          for (const e of this.enemies.values()) {
+            if (e.phased) continue;
+            const d = Math.hypot(e.x - z.x, e.y - z.y);
+            if (d < td) { td = d; tgt = e; }
+          }
+          if (tgt) {
+            this.zones.push({ kind: ZK.BLAST, x: tgt.x, y: tgt.y, r: 20, ttl: 0.15 });
+            this.damageEnemy(tgt, PYLON.DMG + (owner?.stats.pylonDmgBonus ?? 0), owner);
+          }
+        }
+      } else if (z.kind === ZK.BEACON) {
+        // AMBER's Sanctuary (shop): the beacon site mends allies near it
+        const owner = this.players.get(z.owner);
+        if (owner?.stats.sanctuary > 0) {
+          z.healT -= dt;
+          if (z.healT <= 0) {
+            z.healT = 4;
+            for (const q of this.players.values()) {
+              if (q.state === PS.ALIVE && Math.hypot(q.x - z.x, q.y - z.y) < 60) {
+                q.hp = Math.min(this.hpMax(q), q.hp + 1);
+              }
+            }
+          }
+        }
       } else if (z.kind === ZK.DARK) {
         // the Shepherd's herding dark: linger inside and it bites
         z.grace -= dt;
@@ -967,7 +1265,11 @@ export class Sim {
         }
       }
       if (z.ttl <= 0) {
-        if (z.kind === ZK.MORTAR_TELE) {
+        if (z.kind === ZK.BEACON) {
+          // expired unused beacon — clear the owner's warp anchor
+          const owner = this.players.get(z.owner);
+          if (owner) owner.beacon = null;
+        } else if (z.kind === ZK.MORTAR_TELE) {
           for (const p of this.players.values()) {
             if (p.state === PS.ALIVE && Math.hypot(p.x - z.x, p.y - z.y) < z.r) this.applyPlayerHit(p, 1, "MORTAR");
           }
@@ -1002,6 +1304,7 @@ export class Sim {
         bombs: p.bombs, flags,
         orbitals: Math.min(255, p.stats.orbitals | 0),
         cons: p.cons,
+        cores: p.cores,
       });
     }
     const enemies = [];
@@ -1010,6 +1313,7 @@ export class Sim {
       if (e.enraged) flags |= EF.ENRAGED;
       if (e.phased) flags |= EF.PHASED;
       if (e.doorOpen) flags |= EF.OPEN;
+      if (e.slowT > 0 || e.stunT > 0) flags |= EF.CHILLED;
       enemies.push({
         id: e.id, kind: e.kind, x: e.x, y: e.y,
         hpPct: Math.max(1, Math.ceil((e.hp / e.maxHp) * 100)), flags,

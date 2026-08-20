@@ -74,6 +74,9 @@ export const ZK = {
   AEGIS: 5,       // HALO bubble
   WELL: 6,        // ONYX gravity well
   DARK: 7,        // NULL SHEPHERD's spreading darkness
+  BEACON: 8,      // AMBER's placed warp beacon
+  PYLON: 9,       // SPARKS' tesla pylon
+  TURRET: 10,     // RIGG's auto-turret (visual; logic lives in sim.turrets)
 };
 
 // Player state (u8)
@@ -82,13 +85,32 @@ export const PS = { ALIVE: 0, DOWNED: 1, OUT: 2, SPECTATING: 3 };
 // Room phase (u8)
 export const PHASE = { LOBBY: 0, WAVE: 1, INTERMISSION: 2, GAMEOVER: 3, VICTORY: 4 };
 
-// symbol: drawn at the centre of the ship arrow so classes read at a glance
+// symbol: drawn at the centre of the ship arrow so classes read at a glance.
+// weapon: the class's DEFAULT weapon — cd owns fire cadence (PLAYER.FIRE_CD
+// is just the baseline blaster value); kinds are dispatched in sim.fire().
+// abilityCd: per-class Q cooldown (abilityCdr class mods shave it).
 export const PILOTS = [
-  { id: 0, name: "VANTA", color: "#39f0ff", lean: "all-round", ability: "Blink Volley", symbol: "✦", speed: 1.0, fire: 1.0 },
-  { id: 1, name: "EMBER", color: "#ff7a3d", lean: "close range", ability: "Flame Zone", symbol: "▲", speed: 1.05, fire: 1.0 },
-  { id: 2, name: "HALO", color: "#b8ff5e", lean: "support", ability: "Aegis Field", symbol: "◯", speed: 1.0, fire: 0.95 },
-  { id: 3, name: "ONYX", color: "#c26bfa", lean: "heavy", ability: "Gravity Well", symbol: "◉", speed: 0.92, fire: 1.1 },
+  { id: 0, name: "BINK",   color: "#39f0ff", lean: "fast · skirmisher",  ability: "Blink Volley", symbol: "✦", speed: 1.18, fire: 1.0,  maxHp: 0, abilityCd: 12,
+    weapon: { kind: "smg",     label: "SMG",         cd: 0.09, dmg: 0.6, jitter: 0.07 } },
+  { id: 1, name: "BLAZE",  color: "#ff7a3d", lean: "mid speed · close range", ability: "Flame Zone", symbol: "▲", speed: 1.0, fire: 1.0, maxHp: 0, abilityCd: 12,
+    weapon: { kind: "shotgun", label: "SCATTERGUN",  cd: 0.65, dmg: 0.8, pellets: 7, spread: 0.38, life: 0.4 } },
+  { id: 2, name: "AMBER",  color: "#b8ff5e", lean: "support · healer",   ability: "Beacon Warp",  symbol: "◯", speed: 1.0,  fire: 1.0,  maxHp: 0, abilityCd: 8,
+    weapon: { kind: "blaster", label: "BLASTER",     cd: 0.14, dmg: 1 } },
+  { id: 3, name: "DAVE",   color: "#c26bfa", lean: "slow · tank · melee", ability: "Gravity Well", symbol: "◉", speed: 0.78, fire: 1.0, maxHp: 2, abilityCd: 12,
+    weapon: { kind: "cleave",  label: "CLEAVER",     cd: 0.5,  dmg: 3, arcR: 95, arcHalf: 1.05, knockback: 60 } },
+  { id: 4, name: "SPARKS", color: "#ffe45b", lean: "chain lightning",    ability: "Tesla Pylon",  symbol: "⌁", speed: 1.0,  fire: 1.0,  maxHp: 0, abilityCd: 14,
+    weapon: { kind: "arc",     label: "ARC GUN",     cd: 0.22, dmg: 0.9, chain: 2, chainR: 140, chainDmg: 0.5 } },
+  { id: 5, name: "RIGG",   color: "#ff9e2c", lean: "engineer · turrets", ability: "Auto-Turret",  symbol: "⚒", speed: 0.92, fire: 1.0,  maxHp: 0, abilityCd: 16,
+    weapon: { kind: "blaster", label: "BLASTER",     cd: 0.16, dmg: 1.1 } },
+  { id: 6, name: "KELVIN", color: "#8fd8ff", lean: "control · chill",    ability: "Frost Nova",   symbol: "❄", speed: 1.0,  fire: 1.0,  maxHp: 0, abilityCd: 11,
+    weapon: { kind: "lance",   label: "CHILL LANCE", cd: 0.30, dmg: 1.3, chill: 1.2 } },
+  { id: 7, name: "HAWK",   color: "#ff5b8e", lean: "sniper · railgun",   ability: "Triple Rail",  symbol: "⌖", speed: 0.95, fire: 1.0,  maxHp: 0, abilityCd: 9,
+    weapon: { kind: "rail",    label: "RAILGUN",     cd: 0.9,  dmg: 4, speedMul: 3, pierce: 3 } },
 ];
+
+export const AURA = { R: 140, ALLY_S: 5, SELF_S: 10 }; // AMBER's healing aura
+export const TURRET = { TTL: 8, CD: 0.25, DMG: 0.6, RANGE: 700 };
+export const PYLON = { R: 200, TTL: 8, CD: 0.5, DMG: 2 };
 
 export const MAX_PLAYERS = 8; // per lobby
 

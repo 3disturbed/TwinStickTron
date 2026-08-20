@@ -3,10 +3,11 @@
 // migration; a room lives here and players are equal clients.
 
 import {
-  MSG, encodeJson, decodeJson, decodeInput, encodeSnapshot, encodePong,
+  MSG, PROTO, encodeJson, decodeJson, decodeInput, encodeSnapshot, encodePong,
   decodePong, ACK_OFFSET,
 } from "../shared/protocol.js";
-import { TICK_DT, SNAPSHOT_EVERY, PHASE, PS, MAX_PLAYERS } from "../shared/constants.js";
+import { TICK_DT, SNAPSHOT_EVERY, PHASE, PS, MAX_PLAYERS, PILOTS } from "../shared/constants.js";
+import { computeStats } from "../shared/mods.js";
 import { Sim } from "./sim.js";
 import { todayUTC } from "./db.js";
 const EMPTY_GRACE_MS = 10 * 60 * 1000; // codes survive 10 min empty (SDD §3.5)
@@ -82,7 +83,7 @@ export class Room {
     ws._roomPlayerId = id;
 
     ws.send(encodeJson(MSG.WELCOME, {
-      id, code: this.code, resumeKey,
+      id, code: this.code, resumeKey, proto: PROTO,
       phase: this.sim.phase, wave: this.sim.wave,
       roster: this.roster(),
       spectating: this.sim.players.get(id)?.state === PS.SPECTATING,
@@ -145,8 +146,10 @@ export class Room {
       const p = this.sim.players.get(id);
       if (!p) return;
       if (a.t === "pilot" && this.sim.phase === PHASE.LOBBY) {
-        p.pilot = Math.max(0, Math.min(3, a.pilot | 0));
-        p.stats.speed = undefined; // recomputed on run start
+        p.pilot = Math.max(0, Math.min(PILOTS.length - 1, a.pilot | 0));
+        p.weapon = PILOTS[p.pilot].weapon;
+        p.stats = computeStats(PILOTS[p.pilot], p.mods);
+        p.hp = Math.min(p.hp, this.sim.hpMax(p));
         this.broadcast(encodeJson(MSG.EVENT, { t: "roster", roster: this.roster() }));
       } else {
         this.sim.action(p, a);

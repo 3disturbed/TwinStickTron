@@ -22,8 +22,12 @@ Lives at: `https://ultradark.darksgames.app` (DarksGames catalog entry: *UltraDa
   cost banked score, and an Overdrive state that doubles everything until
   someone bleeds.
 - **Builds in 20 seconds.** Between waves, each player drafts 1 of 3 mods
-  from a 40-mod pool with deliberate synergies — pinball ricochet builds,
-  orbital aura builds, cursed high-risk picks.
+  from a 40-mod pool with deliberate synergies — plus a free class-signature
+  upgrade every intermission, and a post-boss **Core Shop** where personal
+  ⬡ cores buy playstyle-flipping class items (Slug Shot, Whirlwind, Shatter…).
+- **8 classes, 8 weapons.** SMG skirmisher, shotgun bruiser, melee tank,
+  beacon-warping healer, chain lightning, turret engineer, freeze control,
+  railgun sniper — the weapon IS the class.
 - **The dark.** From wave 16 the arena lights start failing; the final boss
   is fought by muzzle-flash light alone. It's the signature image the game
   is named for.

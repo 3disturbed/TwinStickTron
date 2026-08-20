@@ -22,8 +22,8 @@ test("snapshot round-trips", () => {
     tick: 90210, phase: 1, wave: 7, phaseT: 300, mult: 4.2,
     unbanked: 123456, banked: 999999, enemiesLeft: 42, stasis: 3.5,
     players: [
-      { id: 1, pilot: 2, state: 0, x: 1024.5, y: 576.25, aim: 1.5, hp: 3, dashCd: 1.2, abilCd: 7, bombs: 2, flags: 3, orbitals: 3, cons: [1, 4, 0] },
-      { id: 2, pilot: 0, state: 1, x: 24, y: 1128, aim: 0, hp: 0, dashCd: 0, abilCd: 0, bombs: 0, flags: 4, orbitals: 0, cons: [] },
+      { id: 1, pilot: 2, state: 0, x: 1024.5, y: 576.25, aim: 1.5, hp: 3, dashCd: 1.2, abilCd: 7, bombs: 2, flags: 3, orbitals: 3, cons: [1, 4, 0], cores: 4097 },
+      { id: 2, pilot: 7, state: 1, x: 24, y: 1128, aim: 0, hp: 0, dashCd: 0, abilCd: 0, bombs: 0, flags: 4, orbitals: 0, cons: [], cores: 0 },
     ],
     enemies: [
       { id: 501, kind: 4, x: 2000.125, y: 100, hpPct: 55, flags: 1 },
@@ -39,6 +39,9 @@ test("snapshot round-trips", () => {
   assert.equal(d.players[0].orbitals, 3);
   assert.deepEqual(d.players[0].cons, [1, 4, 0]);
   assert.deepEqual(d.players[1].cons, [0, 0, 0]);
+  assert.equal(d.players[0].cores, 4097, "cores must survive as u16 (a u8 would truncate)");
+  assert.equal(d.players[1].cores, 0);
+  assert.equal(d.players[1].pilot, 7, "8-class pilot ids fit");
   assert.equal(d.pickups.length, 1);
   assert.equal(d.pickups[0].id, 77);
   assert.equal(d.pickups[0].kind, 3);

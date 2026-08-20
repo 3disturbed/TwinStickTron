@@ -5,7 +5,8 @@ import { PHASE, PS, PLAYER, WAVE, PILOTS, ARENA_W, ARENA_H } from "/shared/const
 import { ENEMIES } from "/shared/enemies.js";
 import { CONSUMABLES, CK } from "/shared/consumables.js";
 import { computeStats } from "/shared/mods.js";
-import { BTN } from "/shared/protocol.js";
+import { SHOP_ITEMS, shopItemById } from "/shared/shop.js";
+import { BTN, PROTO } from "/shared/protocol.js";
 import { net, createRoom, connect, sendInput, sendAction, connectExtra } from "./net.js";
 import { world, onSnapshot, handleEvent, resetForRun, inGame } from "./game.js";
 import * as game from "./game.js";
@@ -87,6 +88,13 @@ function leaveOverlay() { // where DONE/BACK returns to
   else if (net.connected && inGame()) UI.hideScreens();
   else UI.showScreen("screen-menu");
 }
+// Core Shop navigation (P1)
+document.getElementById("btn-tab-shop").onclick = () => {
+  if (world.shopOffer) UI.showShop(world.shopOffer, world.myCores, world.myMods);
+};
+document.getElementById("btn-tab-draft").onclick = () => UI.showScreen("screen-draft");
+document.getElementById("btn-shop-ready").onclick = () => UI.ui.onAction?.({ t: "shop_done" });
+
 document.getElementById("btn-settings").onclick = () => { ensureAudio(); UI.openSettings(settings); };
 document.getElementById("btn-settings-done").onclick = leaveOverlay;
 document.getElementById("btn-lb-done").onclick = leaveOverlay;
@@ -148,6 +156,11 @@ UI.ui.onAction = async (a) => {
     doConnect(a.code);
   } else if (a.t === "ui_invite") {
     UI.invite(world.joinUrl, world.code);
+  } else if (a.t === "buy") {
+    sendAction(a);
+  } else if (a.t === "shop_done") {
+    sendAction(a);
+    UI.showScreen("screen-draft");
   } else if (a.t === "start" || a.t === "again" || a.t === "bank") {
     sendAction({ t: a.t });
     if (a.t === "again") {
@@ -182,7 +195,7 @@ function addLocalPlayer(padIndex) {
   const n = world.locals.length + 2;
   const seat = {
     id: 0, padIndex, name: `${UI.getName().slice(0, 8)}·${n}`,
-    pilot: (world.myPilot + n - 1) % 4,
+    pilot: (world.myPilot + n - 1) % PILOTS.length,
     pred: { x: ARENA_W / 2, y: ARENA_H / 2, vx: 0, vy: 0, dashT: 0, aim: 0 },
     mods: [], stats: null, lastInput: null, seq: 0, dashPrev: false,
     offer: null, grant: null, hud: null, conn: null,
@@ -201,6 +214,13 @@ function addLocalPlayer(padIndex) {
       if (ev.t === "draft_offer") {
         seat.offer = ev.offer;
         UI.addDraftRow(seat, PILOTS[seat.pilot]);
+        if (seat.shopOffer) UI.addShopRow(seat, PILOTS[seat.pilot], seat.shopOffer, seat.shopCores ?? 0);
+      } else if (ev.t === "shop_offer") {
+        seat.shopOffer = ev.items;
+        seat.shopCores = ev.cores;
+        if (seat.offer) UI.addShopRow(seat, PILOTS[seat.pilot], ev.items, ev.cores); // draft row already up
+      } else if (ev.t === "shop_err") {
+        UI.toast(`🎮 ${seat.name}: ${ev.why === "poor" ? "not enough cores" : ev.why === "owned" ? "already owned" : "can't buy"}`, 1600);
       } else if (ev.t === "class_grant") {
         seat.mods.push(ev.mod);
         seat.stats = computeStats(PILOTS[seat.pilot], seat.mods);
@@ -220,6 +240,7 @@ function addLocalPlayer(padIndex) {
 
 // ---------- net wiring ----------
 net.onWelcome = (w) => {
+  if (w.proto && w.proto !== PROTO) { location.reload(); return; } // stale cached client
   world.myId = w.id;
   world.code = w.code;
   world.resumeKey = w.resumeKey;
@@ -276,13 +297,54 @@ net.onEvent = (ev) => {
       break;
     }
     case "pattern": break; // handled in game.handleEvent
+    case "cleave":
+      if (ev.who !== world.myId) { // own swing is drawn locally at fire cadence
+        R.fxCleave(ev.x, ev.y, ev.aim, ev.r, ev.full);
+        sfx.swing();
+      }
+      break;
+    case "aura_heal":
+      if (ev.who === world.myId) R.fxPopup(world.me.x, world.me.y, "+♥", "#b8ff5e");
+      break;
+    case "shop_offer":
+      world.shopOffer = ev.items;
+      UI.showShopTab(ev.cores);
+      break;
+    case "bought": {
+      const it = shopItemById(ev.mod);
+      if (ev.who === world.myId && it) {
+        UI.toast(`⬡ Bought ${it.name}`, 2000);
+        sfx.buy();
+      }
+      // couch seats: keep prediction stats in sync with purchases
+      const bSeat = world.locals.find(l => l.id === ev.who);
+      if (bSeat && !bSeat.mods.includes(ev.mod)) {
+        bSeat.mods.push(ev.mod);
+        bSeat.stats = computeStats(PILOTS[bSeat.pilot], bSeat.mods);
+      }
+      break;
+    }
+    case "shop_err":
+      UI.toast(ev.why === "poor" ? "Not enough cores." : ev.why === "owned" ? "Already owned." : "Can't buy that.", 1800);
+      break;
     case "bomb": R.fxBomb(); sfx.bomb(); break;
     case "hurt":
       if (ev.who === world.myId) { R.addTrauma(0.5); R.hitstop(50); sfx.hurt(); }
       else R.addTrauma(0.15);
       break;
     case "dash": if (ev.who === world.myId) sfx.dash(); break;
-    case "ability": sfx.ability(); break;
+    case "ability":
+      if (ev.pilot === 2 && ev.phase === 1) {
+        if (ev.who === world.myId) UI.toast("◇ Beacon placed — press Q again to warp back", 2600);
+        sfx.pick();
+      } else if (ev.pilot === 2 && ev.phase === 2) {
+        sfx.warp();
+      } else if (ev.pilot === 6) {
+        sfx.freeze(); R.addTrauma(0.2);
+      } else {
+        sfx.ability();
+      }
+      break;
     case "nova": R.addTrauma(0.2); break;
     case "downed":
       UI.banner(ev.who === world.myId ? "YOU ARE DOWN" : `${nameOf(ev.who)} IS DOWN`, true, 2200);
@@ -307,7 +369,12 @@ net.onEvent = (ev) => {
     case "wave_start":
       UI.hideScreens();
       UI.clearDraftLocals();
-      for (const seat of world.locals) { seat.offer = null; seat.grant = null; seat.pickedUi = false; }
+      UI.hideShopTab();
+      world.shopOffer = null;
+      for (const seat of world.locals) {
+        seat.offer = null; seat.grant = null; seat.pickedUi = false;
+        seat.shopOffer = null; seat.shopEls = null; seat.shopDoneUi = false;
+      }
       UI.banner(`WAVE ${ev.wave}`, false, 1600);
       sfx.wave();
       break;
@@ -352,7 +419,9 @@ net.onEvent = (ev) => {
       }
       break;
     }
-    case "intermission": break;
+    case "intermission":
+      world.intermissionS = ev.seconds || 20;
+      break;
     case "gameover":
       lastEnd = ev; challengeBeaten = false;
       sfx.over(); UI.showScore(ev, false, world.challenge);
@@ -399,6 +468,16 @@ function frame(now) {
         const id = UI.seatDraftConfirm(seat);
         if (id) { seat.conn.sendAction({ t: "pick", id }); sfx.pick(); }
       }
+    } else if (world.phase === PHASE.INTERMISSION && seat.pickedUi && seat.shopEls && !seat.shopDoneUi) {
+      // after drafting, the seat's d-pad drives its shop row
+      const nav = pollPadNav(seat.padIndex);
+      if (nav.left) UI.seatShopMove(seat, -1);
+      if (nav.right) UI.seatShopMove(seat, 1);
+      if (nav.confirm) {
+        const id = UI.seatShopConfirm(seat);
+        if (id === "__done") seat.conn.sendAction({ t: "shop_done" });
+        else if (id) { seat.conn.sendAction({ t: "buy", id }); sfx.buy(); }
+      }
     }
   }
   if (!R.isHitstopped()) game.frame(dt, lastInput);
@@ -406,9 +485,15 @@ function frame(now) {
   if ((lastInput.buttons & BTN.FIRE) && world.myState === PS.ALIVE && world.phase === PHASE.WAVE) {
     fireAcc -= dt;
     if (fireAcc <= 0) {
-      fireAcc = PLAYER.FIRE_CD / (world.myStats.fire || 1);
-      R.fxMuzzle(world.me.x, world.me.y, world.me.aim, PILOTS[world.myPilot].color);
-      sfx.shoot();
+      const wpn = PILOTS[world.myPilot].weapon;
+      fireAcc = wpn.cd / (world.myStats.fire || 1);
+      if (wpn.kind === "cleave") {
+        R.fxCleave(world.me.x, world.me.y, world.me.aim, wpn.arcR, world.myStats.cleave360 > 0);
+        sfx.swing();
+      } else {
+        R.fxMuzzle(world.me.x, world.me.y, world.me.aim, PILOTS[world.myPilot].color);
+        ({ smg: sfx.smg, shotgun: sfx.boom, lance: sfx.lance, rail: sfx.rail, arc: sfx.arc }[wpn.kind] ?? sfx.shoot)();
+      }
     }
   } else fireAcc = 0;
   // live challenge check: the moment the squad's total passes the target
@@ -422,8 +507,9 @@ function frame(now) {
   R.draw(dt);
   // intermission UI ticks
   if (world.phase === PHASE.INTERMISSION) {
-    UI.updateDraftTimer(world.phaseT / (WAVE.INTERMISSION_S * 30));
+    UI.updateDraftTimer(world.phaseT / (world.intermissionS * 30)); // post-boss runs 40s
     UI.updateBank(world.unbanked, true);
+    UI.updateShop(world.myCores, world.myMods);
   }
   requestAnimationFrame(frame);
 }

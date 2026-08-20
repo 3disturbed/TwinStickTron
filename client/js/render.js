@@ -76,6 +76,12 @@ export function fxMuzzle(x, y, angle, color) {
   }
 }
 
+const cleaves = [];
+export function fxCleave(x, y, aim, r, full) {
+  cleaves.push({ x, y, aim, r: r ?? 95, full: !!full, t: 0, life: 0.22 });
+  if (cleaves.length > 12) cleaves.shift();
+}
+
 export function fxPopup(x, y, text, color) {
   popups.push({ x, y, text, color, life: 0.9, t: 0 });
   if (popups.length > 40) popups.shift();
@@ -125,6 +131,7 @@ export function draw(dt) {
   drawEnemies();
   drawLasers();
   drawPlayers();
+  drawCleaves(dt);
   drawParticles(dt);
 
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // screen space
@@ -296,6 +303,46 @@ function drawZones(dt) {
         const rr = z.r * ((t + i / 3) % 1);
         ctx.beginPath(); ctx.arc(z.x, z.y, z.r - rr, 0, Math.PI * 2); ctx.stroke();
       }
+    } else if (z.kind === ZK.BEACON) {
+      // AMBER's warp anchor — a pulsing diamond
+      const pulse = 0.7 + 0.3 * Math.sin(performance.now() / 220);
+      ctx.globalCompositeOperation = "lighter";
+      blit(glow("#b8ff5e"), z.x, z.y, 70 * pulse);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = "rgba(184,255,94,0.85)";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(z.x, z.y - 16); ctx.lineTo(z.x + 12, z.y); ctx.lineTo(z.x, z.y + 16); ctx.lineTo(z.x - 12, z.y);
+      ctx.closePath(); ctx.stroke();
+    } else if (z.kind === ZK.PYLON) {
+      // SPARKS' tesla pylon — crackling triangle with range ring
+      const jx = (Math.random() - 0.5) * 3, jy = (Math.random() - 0.5) * 3;
+      ctx.globalCompositeOperation = "lighter";
+      blit(glow("#ffe45b"), z.x + jx, z.y + jy, 54);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = "#ffe45b";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(z.x, z.y - 16); ctx.lineTo(z.x + 14, z.y + 12); ctx.lineTo(z.x - 14, z.y + 12);
+      ctx.closePath(); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,228,91,0.14)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.stroke();
+    } else if (z.kind === ZK.TURRET) {
+      // RIGG's turret — sturdy little emplacement, blinks when expiring
+      const a = z.ttl < 2 && settings.flash ? (Math.floor(performance.now() / 180) % 2 ? 0.4 : 1) : 1;
+      ctx.globalAlpha = a;
+      ctx.globalCompositeOperation = "lighter";
+      blit(glow("#ff9e2c"), z.x, z.y, 44);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = "#ff9e2c";
+      ctx.fillStyle = "#0a0416";
+      ctx.lineWidth = 2.5;
+      ctx.strokeRect(z.x - 11, z.y - 11, 22, 22);
+      ctx.fillRect(z.x - 11, z.y - 11, 22, 22);
+      ctx.fillStyle = "#ff9e2c";
+      ctx.beginPath(); ctx.arc(z.x, z.y, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
     } else if (z.kind === ZK.DARK) {
       // the Shepherd's herding dark — get out before it bites
       const grad = ctx.createRadialGradient(z.x, z.y, z.r * 0.2, z.x, z.y, z.r);
@@ -350,7 +397,8 @@ function drawEnemies() {
     const enraged = e.flags & EF.ENRAGED;
     const phased = e.flags & EF.PHASED;
     const open = e.flags & EF.OPEN;
-    const color = open ? "#ffffff" : enraged ? "#ff4d4d" : def.color;
+    const chilled = e.flags & EF.CHILLED;
+    const color = open ? "#ffffff" : chilled ? "#bfe9ff" : enraged ? "#ff4d4d" : def.color;
     if (phased) ctx.globalAlpha = 0.3;
     ctx.globalCompositeOperation = "lighter";
     blit(glow(color), e.x, e.y, def.radius * (open ? 5.5 : 4));
@@ -479,6 +527,17 @@ function drawPlayers() {
     ctx.globalCompositeOperation = "lighter";
     blit(glow(pilot.color), x, y, 64);
     ctx.globalCompositeOperation = "source-over";
+    // AMBER's heal aura — the soft ring that follows her
+    if (p.pilot === 2) {
+      const ar = 140 * (mine ? (world.myStats.auraR ?? 1) : 1);
+      ctx.strokeStyle = "rgba(184,255,94,0.28)";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([3, 9]);
+      ctx.beginPath(); ctx.arc(x, y, ar, 0, Math.PI * 2); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(184,255,94,0.03)";
+      ctx.fill();
+    }
     // orbital blades — rendered from the same tick formula the server
     // damages with, so what you see is what shreds
     if (p.orbitals > 0) {
@@ -536,6 +595,29 @@ export function setNames(roster) {
   for (const r of roster) names.set(r.id, r.name);
 }
 function nameOf(id) { return names.get(id) ?? "PILOT"; }
+
+// DAVE's melee swing — a fading arc slash
+function drawCleaves(dt) {
+  ctx.globalCompositeOperation = "lighter";
+  for (let i = cleaves.length - 1; i >= 0; i--) {
+    const c = cleaves[i];
+    c.t += dt;
+    if (c.t >= c.life) { cleaves.splice(i, 1); continue; }
+    const p = c.t / c.life;
+    const half = c.full ? Math.PI : 1.05;
+    ctx.strokeStyle = `rgba(194,107,250,${0.9 * (1 - p)})`;
+    ctx.lineWidth = 14 * (1 - p) + 3;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.r * (0.6 + 0.4 * p), c.aim - half, c.aim + half);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - p)})`;
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.r * (0.6 + 0.4 * p), c.aim - half, c.aim + half);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = "source-over";
+}
 
 function drawParticles(dt) {
   ctx.globalCompositeOperation = "lighter";
@@ -625,7 +707,7 @@ function drawHUD() {
     }
     ctx.fillStyle = "#fff";
     ctx.font = "12px ui-monospace, monospace";
-    let extras = `💣${seat.hud.bombs}`;
+    let extras = `💣${seat.hud.bombs} ⬡${seat.hud.cores ?? 0}`;
     if (seat.hud.cons?.length) extras += "  " + seat.hud.cons.map(k => CONSUMABLES[k]?.glyph ?? "?").join(" ");
     if (seat.hud.state === PS.DOWNED) extras = "⬇ DOWNED";
     if (seat.hud.state === PS.SPECTATING) extras = "…next wave";
@@ -670,6 +752,8 @@ function drawHUD() {
   // bombs + dash + ability (bottom right)
   ctx.textAlign = "right";
   ctx.font = "16px ui-monospace, monospace";
+  ctx.fillStyle = "#ffe45b";
+  ctx.fillText(`⬡ ${world.myCores}`, W - pad, H - 110);
   ctx.fillStyle = "#fff";
   ctx.fillText(`💣 ${world.myBombs}`, W - pad, H - 44);
   ctx.fillStyle = world.myDashCd <= 0.05 ? "#39f0ff" : "rgba(255,255,255,0.25)";

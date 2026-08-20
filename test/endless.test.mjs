@@ -22,8 +22,8 @@ test("clearing wave 25 continues to wave 26 (no victory)", () => {
   sim.players.get(1).input = { seq: 1, mx: 0, my: 0, ax: 1, ay: 0, buttons: 0 };
   sim.step(TICK_DT);
   assert.equal(sim.phase, PHASE.INTERMISSION, "wave 25 clear must lead to an intermission");
-  // burn the intermission down
-  for (let t = 0; t < Math.round(25 / TICK_DT) && sim.phase === PHASE.INTERMISSION; t++) sim.step(TICK_DT);
+  // burn the intermission down (post-boss intermissions run 40s for the shop)
+  for (let t = 0; t < Math.round(45 / TICK_DT) && sim.phase === PHASE.INTERMISSION; t++) sim.step(TICK_DT);
   assert.equal(sim.phase, PHASE.WAVE, "intermission after 25 must start another wave");
   assert.equal(sim.wave, 26);
   assert.notEqual(sim.phase, PHASE.VICTORY);
