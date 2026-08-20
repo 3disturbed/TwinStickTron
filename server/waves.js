@@ -23,6 +23,14 @@ function allowedKinds(wave) {
 }
 
 const BOSSES = { 5: EK.BRUTE_PRIME, 10: EK.HEX_PRIME, 15: EK.FOUNDRY, 20: EK.SHEPHERD, 25: EK.ULTRADARK };
+const BOSS_CYCLE = [EK.BRUTE_PRIME, EK.HEX_PRIME, EK.FOUNDRY, EK.SHEPHERD, EK.ULTRADARK];
+
+// Endless: past 25 the roster cycles — wave 30 BRUTE PRIME, …, 50 THE
+// ULTRADARK again, and on forever.
+export function bossFor(wave) {
+  if (wave % WAVE.BOSS_EVERY !== 0) return null;
+  return BOSSES[wave] ?? BOSS_CYCLE[(wave / WAVE.BOSS_EVERY - 1) % BOSS_CYCLE.length];
+}
 
 // Beyond a 4-stack, each extra player adds enemies at a gentler slope —
 // keeps 8-player lobbies chaotic but readable (and snapshots bounded).
@@ -48,12 +56,13 @@ export function makeWave(wave, players, rng = Math.random) {
     t += 1.2 + rng() * (spread / Math.max(6, budget / 12));
   }
   entries.sort((a, b) => a.t - b.t);
-  const boss = BOSSES[wave] ?? null;
-  return { entries, boss };
+  return { entries, boss: bossFor(wave) };
 }
 
-// Boss HP scales with player count (SDD §2.6), softened past a 4-stack
-export function bossHp(kind, players) {
-  const base = ENEMIES[kind].hp;
+// Boss HP scales with player count (SDD §2.6), softened past a 4-stack.
+// Past wave 25 the base keeps growing at the slope waves 1–25 set
+// (~6 HP/wave: 60→180 across bosses 5→25), so cycled bosses never go soft.
+export function bossHp(kind, players, wave = 0) {
+  const base = ENEMIES[kind].hp + (wave > 25 ? (wave - 25) * 6 : 0);
   return Math.round(base * (0.7 + 0.3 * effectivePlayers(players)));
 }

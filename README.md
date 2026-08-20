@@ -92,7 +92,7 @@ template.
 - [x] Phase 0 — skeleton + staging deploy
 - [x] Phase 1 — solo vertical slice
 - [x] Phase 2 — lobbies & co-op netcode
-- [x] Phase 3 — full content: 12 enemies, 5 bosses, waves 1–25, the dark, 40-mod pool, death recap, accessibility settings
+- [x] Phase 3 — full content: 12 enemies, 5 bosses, ENDLESS waves (bosses cycle every 5th forever), the dark, 40-mod pool, death recap, accessibility settings
 - [x] Phase 4 — meta: server-side leaderboards + Daily Dark (node:sqlite), PWA
 - [ ] Phase 4b — optional DG account sign-in for leaderboard identity
 - [x] Phase 5 — headless verification + deployed; ongoing: balance from real runs, delta-compressed snapshots

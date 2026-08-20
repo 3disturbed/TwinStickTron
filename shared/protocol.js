@@ -86,7 +86,7 @@ export function encodeSnapshot(s) {
   v.setUint32(o, s.tick, true); o += 4;
   v.setUint16(o, 0, true); o += 2; // yourAck placeholder
   v.setUint8(o, s.phase); o += 1;
-  v.setUint8(o, s.wave); o += 1;
+  v.setUint8(o, Math.min(255, s.wave)); o += 1; // endless runs: clamp the u8
   v.setUint16(o, Math.min(65535, s.phaseT | 0), true); o += 2;
   v.setUint8(o, Math.round(s.mult * 10)); o += 1;
   v.setUint32(o, s.unbanked >>> 0, true); o += 4;

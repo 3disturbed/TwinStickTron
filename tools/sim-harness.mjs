@@ -96,7 +96,7 @@ function runDeep() {
   for (let i = 1; i <= 4; i++) sim.addPlayer(i, `BOT${i}`, (i - 1) % 4);
   sim.startRun();
   let kills = 0;
-  for (const wave of [7, 9, 12, 14, 15, 20, 25]) {
+  for (const wave of [7, 9, 12, 14, 15, 20, 25, 30, 42]) { // 30+/42: endless cycle
     sim.startWave(wave);
     for (let t = 0; t < Math.round(45 / TICK_DT); t++) {
       for (const p of sim.players.values()) {

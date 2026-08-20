@@ -60,15 +60,17 @@ roguelite drafting (which Ultratron predates) and a shared-fate multiplier
 CREATE / JOIN LOBBY  →  WAVE (60–120s)  →  INTERMISSION (draft, 20s)
         ↑                    │ every 5th wave: BOSS
         │                    ↓
-   "AGAIN?" ←──────  RUN ENDS: victory (wave 25) or squad wipe
+   "AGAIN?" ←──────  RUN ENDS: squad wipe (runs are ENDLESS)
                      → score screen → leaderboard → same lobby, one click
 ```
 
-- **Session:** a *run* is waves 1–25. Full clear ≈ 20 minutes. A wipe ends
+- **Session:** runs are ENDLESS — waves climb forever at a constant rate
+  (boss roster cycles every 5th wave past 25, boss HP keeps the same
+  per-wave slope). A typical run is 15–25 minutes. A wipe ends
   the run for everyone (co-op is shared-fate; see 2.6).
 - **Intermission:** 20-second timer, vote-to-skip. Draft happens here.
-- **Endless mode** (post-launch): after wave 25, waves loop with stacking
-  mutators for leaderboard chasers.
+- Depth is the score: leaderboards record the wave reached alongside the
+  banked score, so "how deep did you get" is the bragging number.
 
 ### 2.2 Moment-to-moment controls
 
@@ -470,7 +472,7 @@ being in the arena before the conversation moves on.
 ## 5. Out of scope at launch
 
 PvP of any kind · text chat · accounts-required features · monetisation ·
-native builds · endless mode · public matchmaking (private links only) ·
+native builds · public matchmaking (private links only) ·
 WebGL renderer (Canvas 2D budgeted to suffice) · host-side mod tools.
 
 Each is deliberately deferred, not rejected; §2.12 and §3.7 note the ones

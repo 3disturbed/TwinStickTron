@@ -46,7 +46,9 @@ export const MULT = {
 };
 
 export const WAVE = {
-  MAX: 25,               // full run per SDD §2.1; victory at 25
+  // ENDLESS: no victory wave — runs end only on a squad wipe. Budgets,
+  // enemy speed and boss HP keep climbing at the same per-wave rate the
+  // first 25 waves established; bosses cycle every 5th wave forever.
   INTERMISSION_S: 20,
   BOSS_EVERY: 5,
   SPAWN_MIN_DIST: 320,   // never spawn within this of a player (SDD §2.9)

@@ -57,12 +57,14 @@ test("full enemy roster is defined for every wave's ramp", () => {
   for (const k of [EK.BRUTE_PRIME, EK.HEX_PRIME, EK.FOUNDRY, EK.SHEPHERD, EK.ULTRADARK]) {
     assert.ok(ENEMIES[k]?.boss, `boss kind ${k} missing`);
   }
-  // every 5th wave has its boss, victory wave included
-  for (const w of [5, 10, 15, 20, 25]) {
+  // every 5th wave has its boss — forever (endless mode cycles the roster)
+  for (const w of [5, 10, 15, 20, 25, 30, 45, 100]) {
     assert.ok(makeWave(w, 2).boss, `wave ${w} has no boss`);
   }
   assert.equal(makeWave(25, 1).boss, EK.ULTRADARK);
-  assert.equal(WAVE.MAX, 25);
+  assert.equal(makeWave(30, 1).boss, EK.BRUTE_PRIME, "cycle restarts after 25");
+  assert.equal(makeWave(50, 1).boss, EK.ULTRADARK, "the dark returns every 25");
+  assert.equal(WAVE.MAX, undefined, "endless: there is no final wave");
 });
 
 test("seeded waves are deterministic (the Daily Dark contract)", () => {

@@ -1,6 +1,6 @@
 // UltraDark service worker — app-shell cache. NEVER touches /ws or /api
 // (SDD §3.10). Bump VERSION on client deploys.
-const VERSION = "ud-v6";
+const VERSION = "ud-v7";
 const SHELL = [
   "/", "/styles.css", "/manifest.webmanifest", "/icons/icon.svg",
   "/js/main.js", "/js/net.js", "/js/game.js", "/js/input.js",

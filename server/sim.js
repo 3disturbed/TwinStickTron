@@ -204,8 +204,7 @@ export class Sim {
             if (offer.length) this.action(p, { t: "pick", id: offer[Math.floor(Math.random() * offer.length)] });
           }
         }
-        if (this.wave >= WAVE.MAX) this.endRun(true);
-        else this.startWave(this.wave + 1);
+        this.startWave(this.wave + 1); // endless — the dark always has more
       }
       return;
     }
@@ -226,8 +225,7 @@ export class Sim {
     }
     if (this.scriptDone() && this.enemies.size === 0 && this.pending.length === 0) {
       this.emit({ t: "wave_end", wave: this.wave });
-      if (this.wave >= WAVE.MAX) this.endRun(true);
-      else this.beginIntermission();
+      this.beginIntermission(); // endless — no victory wave
       return;
     }
     let anyAlive = false;
@@ -551,7 +549,7 @@ export class Sim {
 
   spawnEnemy(kind, x, y, isBoss) {
     const def = ENEMIES[kind];
-    const hp = isBoss ? bossHp(kind, Math.max(1, this.activeCount())) : def.hp;
+    const hp = isBoss ? bossHp(kind, Math.max(1, this.activeCount()), this.wave) : def.hp;
     const e = {
       id: this.eid = (this.eid % 65000) + 1,
       kind, def, x, y, vx: 0, vy: 0,
