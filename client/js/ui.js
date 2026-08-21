@@ -330,17 +330,31 @@ export function openSettings(s) {
   syncSettingLabels(s);
   showScreen("screen-settings");
 }
+const THEME_LABELS = { retro: "◆ RETRO", bots: "🤖 BOTS", zombies: "🧟 ZOMBIES" };
+const THEME_ORDER = ["retro", "bots", "zombies"];
+
 export function syncSettingLabels(s) {
   $("v-shake").textContent = `${Math.round(s.shake * 100)}%`;
   $("v-floor").textContent = `${Math.round(s.floor * 100)}%`;
   $("v-vol").textContent = `${Math.round(s.volume * 400)}%`;
   $("set-flash").textContent = s.flash ? "ON" : "OFF (photosensitive)";
+  $("set-thworld").textContent = THEME_LABELS[s.themeWorld] ?? THEME_LABELS.retro;
+  $("set-thplayers").textContent = THEME_LABELS[s.themePlayers] ?? THEME_LABELS.retro;
+  $("set-thenemies").textContent = THEME_LABELS[s.themeEnemies] ?? THEME_LABELS.retro;
 }
 export function bindSettings(s, onChange) {
   $("set-shake").oninput = (e) => { s.shake = e.target.value / 100; syncSettingLabels(s); onChange(); };
   $("set-floor").oninput = (e) => { s.floor = e.target.value / 100; syncSettingLabels(s); onChange(); };
   $("set-vol").oninput = (e) => { s.volume = e.target.value / 400; syncSettingLabels(s); onChange(); };
   $("set-flash").onclick = () => { s.flash = !s.flash; syncSettingLabels(s); onChange(); };
+  const cycle = (key) => {
+    const cur = THEME_ORDER.indexOf(s[key]);
+    s[key] = THEME_ORDER[(cur + 1) % THEME_ORDER.length];
+    syncSettingLabels(s); onChange();
+  };
+  $("set-thworld").onclick = () => cycle("themeWorld");
+  $("set-thplayers").onclick = () => cycle("themePlayers");
+  $("set-thenemies").onclick = () => cycle("themeEnemies");
 }
 
 // ---------- leaderboards ----------

@@ -8,9 +8,17 @@ import { CONSUMABLES } from "/shared/consumables.js";
 import { PF, EF } from "/shared/protocol.js";
 import { world, myHpMax, serverTickNow } from "./game.js";
 import { net } from "./net.js";
+import { mulberry32 } from "/shared/rng.js";
 
-// player-tunable accessibility settings (SDD §2.11) — main.js loads/saves
-export const settings = { shake: 1, flash: true, floor: 0, volume: 0.25 };
+// player-tunable accessibility settings (SDD §2.11) — main.js loads/saves.
+// Themes are three INDEPENDENT cosmetic channels: mix a mech pilot with
+// retro enemies in a post-apocalyptic world if that's your thing. Rendering
+// only — hitboxes and the server never change.
+export const settings = {
+  shake: 1, flash: true, floor: 0, volume: 0.25,
+  themeWorld: "retro", themePlayers: "retro", themeEnemies: "retro",
+};
+export const THEME_OPTS = ["retro", "bots", "zombies"];
 
 let canvas, ctx, W = 0, H = 0, dpr = 1;
 let scale = 1, offX = 0, offY = 0;
@@ -251,6 +259,9 @@ function drawLasers() {
 }
 
 function drawGrid() {
+  if (settings.themeWorld === "bots") return drawWorldBots();
+  if (settings.themeWorld === "zombies") return drawWorldZombies();
+  // retro — the original neon grid
   const bright = 0.10 + gridPulse * 0.22;
   ctx.strokeStyle = `rgba(57,240,255,${bright})`;
   ctx.lineWidth = 1.2;
@@ -260,6 +271,77 @@ function drawGrid() {
   ctx.stroke();
   ctx.strokeStyle = `rgba(57,240,255,${0.5 + gridPulse * 0.5})`;
   ctx.lineWidth = 3;
+  ctx.strokeRect(0, 0, ARENA_W, ARENA_H);
+}
+
+// BOTS world — dystopian sci-fi deck plating: panels, rivets, hazard marks
+function drawWorldBots() {
+  ctx.fillStyle = "#0a0e14";
+  ctx.fillRect(0, 0, ARENA_W, ARENA_H);
+  ctx.strokeStyle = `rgba(37,56,78,${0.55 + gridPulse * 0.4})`;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let x = 0; x <= ARENA_W; x += 256) { ctx.moveTo(x, 0); ctx.lineTo(x, ARENA_H); }
+  for (let y = 0; y <= ARENA_H; y += 256) { ctx.moveTo(0, y); ctx.lineTo(ARENA_W, y); }
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(22,34,47,0.5)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 128; x <= ARENA_W; x += 256) { ctx.moveTo(x, 0); ctx.lineTo(x, ARENA_H); }
+  for (let y = 128; y <= ARENA_H; y += 256) { ctx.moveTo(0, y); ctx.lineTo(ARENA_W, y); }
+  ctx.stroke();
+  ctx.fillStyle = `rgba(63,88,114,${0.7 + gridPulse * 0.3})`;
+  for (let x = 0; x <= ARENA_W; x += 256) {
+    for (let y = 0; y <= ARENA_H; y += 256) ctx.fillRect(x - 2, y - 2, 4, 4);
+  }
+  ctx.strokeStyle = "rgba(163,84,29,0.45)"; // hazard corner brackets
+  ctx.lineWidth = 3;
+  for (let x = 256; x < ARENA_W; x += 512) {
+    for (let y = 256; y < ARENA_H; y += 512) {
+      ctx.beginPath(); ctx.moveTo(x - 14, y); ctx.lineTo(x, y); ctx.lineTo(x, y - 14); ctx.stroke();
+    }
+  }
+  ctx.strokeStyle = "#5a4632";
+  ctx.lineWidth = 4;
+  ctx.strokeRect(0, 0, ARENA_W, ARENA_H);
+}
+
+// ZOMBIES world — post-apocalyptic wasteland: a seeded, cached ground texture
+let groundCache = null;
+function drawWorldZombies() {
+  if (!groundCache) {
+    groundCache = document.createElement("canvas");
+    groundCache.width = 1024; groundCache.height = 576;
+    const g = groundCache.getContext("2d");
+    const rng = mulberry32(0xDEAD);
+    g.fillStyle = "#10120a";
+    g.fillRect(0, 0, 1024, 576);
+    for (let i = 0; i < 150; i++) { // stains and scorch
+      g.fillStyle = `rgba(${8 + rng() * 14 | 0},${10 + rng() * 12 | 0},6,${0.25 + rng() * 0.3})`;
+      g.beginPath();
+      g.ellipse(rng() * 1024, rng() * 576, 12 + rng() * 46, 8 + rng() * 30, rng() * 3.14, 0, 6.3);
+      g.fill();
+    }
+    g.strokeStyle = "#070804"; // cracked earth
+    g.lineWidth = 1.5;
+    for (let i = 0; i < 60; i++) {
+      let cx = rng() * 1024, cy = rng() * 576;
+      g.beginPath(); g.moveTo(cx, cy);
+      for (let s = 0; s < 4; s++) { cx += (rng() - 0.5) * 60; cy += (rng() - 0.5) * 40; g.lineTo(cx, cy); }
+      g.stroke();
+    }
+    for (let i = 0; i < 90; i++) { // dead scrub + rubble
+      g.fillStyle = rng() < 0.5 ? "#1c2412" : "#26301a";
+      g.fillRect(rng() * 1024, rng() * 576, 2 + rng() * 3, 2 + rng() * 3);
+    }
+    for (let i = 0; i < 14; i++) {
+      g.fillStyle = "#2e2418";
+      g.fillRect(rng() * 1024, rng() * 576, 6 + rng() * 14, 4 + rng() * 8);
+    }
+  }
+  ctx.drawImage(groundCache, 0, 0, ARENA_W, ARENA_H);
+  ctx.strokeStyle = "#4a3a26";
+  ctx.lineWidth = 4;
   ctx.strokeRect(0, 0, ARENA_W, ARENA_H);
 }
 
@@ -403,15 +485,21 @@ function drawEnemies() {
     ctx.globalCompositeOperation = "lighter";
     blit(glow(color), e.x, e.y, def.radius * (open ? 5.5 : 4));
     ctx.globalCompositeOperation = "source-over";
-    ctx.strokeStyle = color;
-    ctx.fillStyle = "#0a0416";
-    ctx.lineWidth = open ? 4 : 2.5;
-    shapePath(def.shape, e.x, e.y, def.radius, performance.now() / 1000 + e.id);
-    ctx.fill(); ctx.stroke();
+    if (settings.themeEnemies === "bots") {
+      drawRobot(e, def, color);
+    } else if (settings.themeEnemies === "zombies") {
+      drawZombieEnemy(e, def, color);
+    } else {
+      ctx.strokeStyle = color;
+      ctx.fillStyle = "#0a0416";
+      ctx.lineWidth = open ? 4 : 2.5;
+      shapePath(def.shape, e.x, e.y, def.radius, performance.now() / 1000 + e.id);
+      ctx.fill(); ctx.stroke();
+      // eyes stay visible (readable chaos)
+      ctx.fillStyle = color;
+      ctx.beginPath(); ctx.arc(e.x, e.y, Math.max(2.5, def.radius * 0.18), 0, Math.PI * 2); ctx.fill();
+    }
     if (phased) ctx.globalAlpha = 1;
-    // eyes stay visible (readable chaos)
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.arc(e.x, e.y, Math.max(2.5, def.radius * 0.18), 0, Math.PI * 2); ctx.fill();
     if (def.boss || e.hpPct < 100) {
       ctx.fillStyle = "rgba(255,255,255,0.15)";
       ctx.fillRect(e.x - def.radius, e.y - def.radius - 10, def.radius * 2, 4);
@@ -431,6 +519,218 @@ function drawEnemies() {
     ctx.fillStyle = "#fff";
     ctx.fillText(boss.def.name, ARENA_W / 2, 52);
   }
+}
+
+// ---------- theme painters ----------
+function mixColor(hexA, hexB, t) {
+  const a = parseInt(hexA.slice(1), 16), b = parseInt(hexB.slice(1), 16);
+  const c = (sh) => Math.round(((a >> sh & 255) * (1 - t)) + ((b >> sh & 255) * t));
+  return `rgb(${c(16)},${c(8)},${c(0)})`;
+}
+
+// 8-bit pixel sprites, cached per pattern+color. '.'=transparent,
+// B=body, D=dark shell, E=eye (bright), T=tread, C=accent, G=gun
+const pixCache = new Map();
+function pixelSprite(key, rows, palette) {
+  let c = pixCache.get(key);
+  if (c) return c;
+  const px = 4;
+  const w = Math.max(...rows.map(r => r.length));
+  c = document.createElement("canvas");
+  c.width = w * px; c.height = rows.length * px;
+  const g = c.getContext("2d");
+  rows.forEach((row, y) => {
+    for (let x = 0; x < row.length; x++) {
+      const col = palette[row[x]];
+      if (!col) continue;
+      g.fillStyle = col;
+      g.fillRect(x * px, y * px, px, px);
+    }
+  });
+  pixCache.set(key, c);
+  return c;
+}
+
+const BOT_PATTERNS = {
+  compact: [ // drones, mites, leeches — little scuttlers
+    "....DDDD....",
+    "...DBBBBD...",
+    "..DBBBBBBD..",
+    ".DBEBBBBEBD.",
+    ".DBBBBBBBBD.",
+    ".DBBDBBDBBD.",
+    "..DBBBBBBD..",
+    "...DDDDDD...",
+    "..TT....TT..",
+    "..TT....TT..",
+  ],
+  wing: [ // weavers, snipers, ghosts — fliers
+    "D....DD....D",
+    "DD..DBBD..DD",
+    ".DDDBBBBDDD.",
+    "..DBEBBEBD..",
+    "..DBBBBBBD..",
+    ".DDBBDDBBDD.",
+    ".D.DBBBBD.D.",
+    "....DBBD....",
+    ".....DD.....",
+  ],
+  tank: [ // brutes, mortars, forges, blocks — treaded armor
+    "..DDDDDDDD..",
+    ".DBBBBBBBBD.",
+    "DBBEBBBBEBBD",
+    "DBBBBBBBBBBD",
+    "DBBBDDDDBBBD",
+    "DBBBBBBBBBBD",
+    ".DBBBBBBBBD.",
+    "TTTTTTTTTTTT",
+    "TDTDTDTDTDTD",
+    "TTTTTTTTTTTT",
+  ],
+  saw: [ // spinners — spiked shredders
+    "..D..DD..D..",
+    ".DBDDBBDDBD.",
+    "DBBBBBBBBBBD",
+    ".DBEBBBBEBD.",
+    "DBBBBBBBBBBD",
+    ".DBBBDDBBBD.",
+    "DBBBBBBBBBBD",
+    ".DBDDBBDDBD.",
+    "..D..DD..D..",
+  ],
+  magnet: [ // magnets, rings — horseshoe frames
+    ".DDDD..DDDD.",
+    ".DBBD..DBBD.",
+    ".DBBD..DBBD.",
+    ".DBBDDDDBBD.",
+    ".DBBBBBBBBD.",
+    "..DBEBBEBD..",
+    "..DBBBBBBD..",
+    "...DDDDDD...",
+  ],
+  shield: [ // wardens, pents — plated guards
+    "....DDDD....",
+    "..DDBBBBDD..",
+    ".DBBBBBBBBD.",
+    ".DBEBBBBEBD.",
+    ".DBBBBBBBBD.",
+    ".DDBBBBBBDD.",
+    "..DBBBBBBD..",
+    "..DDBBBBDD..",
+    "...DDBBDD...",
+    "....DDDD....",
+  ],
+};
+const SHAPE_TO_BOT = {
+  circle: "compact", dot: "compact", crescent: "compact",
+  diamond: "wing", tri: "wing", ghost: "wing",
+  hex: "tank", square: "tank", block: "tank",
+  gear: "saw", ring: "magnet", hexring: "magnet", pent: "shield",
+};
+
+function drawRobot(e, def, color) {
+  const pat = BOT_PATTERNS[SHAPE_TO_BOT[def.shape] ?? "compact"];
+  const key = `bot|${SHAPE_TO_BOT[def.shape]}|${color}`;
+  const spr = pixelSprite(key, pat, {
+    B: mixColor(color, "#20242c", 0.45),
+    D: "#0d1016",
+    E: color,
+    T: "#3a4148",
+  });
+  const size = def.radius * 2.6;
+  const bob = Math.sin(performance.now() / 250 + e.id) * 1.5;
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(spr, e.x - size / 2, e.y - size / 2 + bob, size, size * (spr.height / spr.width));
+  ctx.imageSmoothingEnabled = true;
+}
+
+function drawZombieEnemy(e, def, color) {
+  const r = def.radius;
+  const t = performance.now() / 1000;
+  const body = mixColor(color, "#5f7048", 0.6); // sickly flesh tint of the kind color
+  // shambling wobble blob — silhouette scale still matches the hitbox
+  ctx.fillStyle = "#151a10";
+  ctx.strokeStyle = body;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const verts = 10;
+  for (let i = 0; i <= verts; i++) {
+    const a = (i / verts) * Math.PI * 2;
+    const rr = r * (0.84 + 0.16 * Math.sin(t * 3.1 + i * 2.7 + e.id));
+    const px = e.x + Math.cos(a) * rr, py = e.y + Math.sin(a) * rr;
+    i ? ctx.lineTo(px, py) : ctx.moveTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  if (r < 20) { // small shamblers get grasping arms
+    const reach = Math.sin(t * 5 + e.id) * 0.35;
+    for (const side of [-0.6 + reach, 0.6 - reach]) {
+      ctx.beginPath();
+      ctx.moveTo(e.x + Math.cos(side) * r * 0.7, e.y + Math.sin(side) * r * 0.7);
+      ctx.lineTo(e.x + Math.cos(side) * (r + 8), e.y + Math.sin(side) * (r + 8));
+      ctx.stroke();
+    }
+  } else { // bigger horrors get a maw
+    ctx.strokeStyle = "#6e1d1d";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y + r * 0.25, r * 0.35, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+  }
+  // glowing eyes — readable in any theme, and the dark's lightmap expects them
+  ctx.fillStyle = color;
+  const eo = r * 0.3;
+  ctx.beginPath(); ctx.arc(e.x - eo, e.y - r * 0.2, Math.max(2, r * 0.12), 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(e.x + eo, e.y - r * 0.2, Math.max(2, r * 0.12), 0, Math.PI * 2); ctx.fill();
+}
+
+const MECH_PATTERN = [
+  ".....GG.....",
+  ".....GG.....",
+  "..DDCCCCDD..",
+  ".DCCCCCCCCD.",
+  "DDCCDEEDCCDD",
+  "DCCCDEEDCCCD",
+  "DCCCCCCCCCCD",
+  ".DCCCDDCCCD.",
+  ".DDCC..CCDD.",
+  "..DCC..CCD..",
+  "..DD....DD..",
+  ".DDD....DDD.",
+];
+
+function drawMechPlayer(x, y, aim, pilotColor) {
+  const spr = pixelSprite(`mech|${pilotColor}`, MECH_PATTERN, {
+    C: mixColor(pilotColor, "#2a3140", 0.35),
+    D: "#12161f",
+    E: "#ffffff",
+    G: "#6a7688",
+  });
+  const size = 42;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(aim + Math.PI / 2); // pattern faces up; aim is +x
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(spr, -size / 2, -size / 2, size, size);
+  ctx.imageSmoothingEnabled = true;
+  ctx.restore();
+}
+
+function drawSoldierPlayer(x, y, aim, pilotColor) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(aim);
+  ctx.fillStyle = "#222"; // rifle forward
+  ctx.fillRect(4, -2, 20, 4);
+  ctx.fillStyle = "#39402a"; // fatigues
+  ctx.strokeStyle = pilotColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(0, 0, 12, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "#2c331e"; // helmet
+  ctx.beginPath(); ctx.arc(-2, 0, 7, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = pilotColor; // squad-colored visor strip
+  ctx.fillRect(2, -3, 3, 6);
+  ctx.restore();
 }
 
 function shapePath(shape, x, y, r, t) {
@@ -562,22 +862,28 @@ function drawPlayers() {
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(x, y, ORBITAL.R, 0, Math.PI * 2); ctx.stroke();
     }
-    // ship triangle
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(aim);
-    ctx.strokeStyle = pilot.color;
-    ctx.fillStyle = "#0a0416";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(16, 0); ctx.lineTo(-11, 10); ctx.lineTo(-6, 0); ctx.lineTo(-11, -10);
-    ctx.closePath();
-    ctx.fill(); ctx.stroke();
-    ctx.restore();
-    // class symbol at the arrow's centre — upright regardless of aim
+    // the ship — themed: retro arrow / 8-bit mech / soldier
+    if (settings.themePlayers === "bots") {
+      drawMechPlayer(x, y, aim, pilot.color);
+    } else if (settings.themePlayers === "zombies") {
+      drawSoldierPlayer(x, y, aim, pilot.color);
+    } else {
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(aim);
+      ctx.strokeStyle = pilot.color;
+      ctx.fillStyle = "#0a0416";
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(16, 0); ctx.lineTo(-11, 10); ctx.lineTo(-6, 0); ctx.lineTo(-11, -10);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+    // class symbol at the centre — upright regardless of aim or theme
     ctx.font = "bold 11px ui-monospace, monospace";
     ctx.textAlign = "center";
-    ctx.fillStyle = pilot.color;
+    ctx.fillStyle = settings.themePlayers === "retro" ? pilot.color : "#ffffff";
     ctx.fillText(pilot.symbol, x - 1, y + 4);
     ctx.globalAlpha = 1;
     if (!mine) {
