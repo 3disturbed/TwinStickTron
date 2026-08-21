@@ -179,16 +179,28 @@ export function seatDraftConfirm(seat) {
 // P1's storefront. Items grey out when owned or unaffordable; the live
 // cores balance re-renders affordability every snapshot via updateShop().
 let shopState = { items: [], owned: new Set(), cores: 0 };
+let shopRenderKey = ""; // re-render ONLY on real changes — a per-frame rebuild
+                        // destroys the node between mousedown and mouseup, so
+                        // mouse clicks never register (the "shop dead on PC" bug)
+
+function shopKey(cores, owned) {
+  return cores + "|" + [...owned].filter(i => i.startsWith("s_")).sort().join(",");
+}
 
 export function showShop(itemIds, cores, ownedIds) {
   shopState = { items: itemIds, owned: new Set(ownedIds), cores };
+  shopRenderKey = shopKey(cores, shopState.owned);
   renderShopCards();
   showScreen("screen-shop");
 }
 export function updateShop(cores, ownedIds) {
   if ($("screen-shop").classList.contains("hidden")) return;
+  const owned = ownedIds ? new Set(ownedIds) : shopState.owned;
+  const key = shopKey(cores, owned);
+  if (key === shopRenderKey) return; // nothing changed — leave the DOM alone
+  shopRenderKey = key;
   shopState.cores = cores;
-  if (ownedIds) shopState.owned = new Set(ownedIds);
+  shopState.owned = owned;
   renderShopCards();
 }
 function renderShopCards() {

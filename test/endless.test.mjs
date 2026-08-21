@@ -44,3 +44,17 @@ test("scaling continues at the established rate past 25", () => {
   // wave 50's cycled ULTRADARK is tougher than wave 25's original
   assert.ok(at50 > at25);
 });
+
+test("boss HP tracks squad size (near-linear to 4, softened past)", () => {
+  const solo = bossHp(EK.BRUTE_PRIME, 1);
+  assert.equal(solo, 60, "solo boss HP unchanged (×1.0)");
+  assert.equal(bossHp(EK.BRUTE_PRIME, 2), Math.round(60 * 1.8));
+  assert.equal(bossHp(EK.BRUTE_PRIME, 4), Math.round(60 * 3.4));
+  assert.equal(bossHp(EK.BRUTE_PRIME, 8), Math.round(60 * 5.8));
+  // a 4-stack boss must carry at least 3× a solo boss's HP, or it melts
+  assert.ok(bossHp(EK.ULTRADARK, 4) >= bossHp(EK.ULTRADARK, 1) * 3);
+  // monotonic in players
+  for (let p = 2; p <= 8; p++) {
+    assert.ok(bossHp(EK.HEX_PRIME, p) > bossHp(EK.HEX_PRIME, p - 1), `HP must grow at ${p} players`);
+  }
+});

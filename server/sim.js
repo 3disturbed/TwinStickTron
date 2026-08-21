@@ -935,8 +935,9 @@ export class Sim {
         if (!e.doorOpen && e.doorT <= 0) {
           e.doorOpen = true; e.doorT = def.doorOpen;
           this.emit({ t: "doors", id: e.id, open: true });
-          for (let i = 0; i < def.spawnCount; i++) {
-            const a = (i / def.spawnCount) * Math.PI * 2;
+          const spawnN = def.spawnCount + Math.max(0, this.activeCount() - 1); // adds scale with the squad
+          for (let i = 0; i < spawnN; i++) {
+            const a = (i / spawnN) * Math.PI * 2;
             const kinds = [EK.MITE, EK.DRONE, EK.WEAVER];
             this.pendingAt(kinds[i % kinds.length], e.x + Math.cos(a) * 110, e.y + Math.sin(a) * 110);
           }

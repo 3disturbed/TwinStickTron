@@ -59,10 +59,13 @@ export function makeWave(wave, players, rng = Math.random) {
   return { entries, boss: bossFor(wave) };
 }
 
-// Boss HP scales with player count (SDD §2.6), softened past a 4-stack.
+// Boss HP must track squad DPS, which is roughly linear in player count —
+// the old 0.7+0.3p curve made bosses melt in co-op. Near-linear to a
+// 4-stack (solo ×1.0 unchanged, 4p ×3.4), softened beyond (8p ×5.8).
 // Past wave 25 the base keeps growing at the slope waves 1–25 set
 // (~6 HP/wave: 60→180 across bosses 5→25), so cycled bosses never go soft.
 export function bossHp(kind, players, wave = 0) {
   const base = ENEMIES[kind].hp + (wave > 25 ? (wave - 25) * 6 : 0);
-  return Math.round(base * (0.7 + 0.3 * effectivePlayers(players)));
+  const f = players <= 4 ? 0.2 + 0.8 * players : 3.4 + 0.6 * (players - 4);
+  return Math.round(base * f);
 }
