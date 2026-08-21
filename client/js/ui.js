@@ -178,29 +178,30 @@ export function seatDraftConfirm(seat) {
 // ---------- the Core Shop (post-boss intermissions) ----------
 // P1's storefront. Items grey out when owned or unaffordable; the live
 // cores balance re-renders affordability every snapshot via updateShop().
-let shopState = { items: [], owned: new Set(), cores: 0 };
+let shopState = { items: [], ownedArr: [], cores: 0 };
 let shopRenderKey = ""; // re-render ONLY on real changes — a per-frame rebuild
                         // destroys the node between mousedown and mouseup, so
                         // mouse clicks never register (the "shop dead on PC" bug)
 
-function shopKey(cores, owned) {
-  return cores + "|" + [...owned].filter(i => i.startsWith("s_")).sort().join(",");
+function shopKey(cores, ownedArr) {
+  // duplicates included: buying another stack of the same item must re-render
+  return cores + "|" + ownedArr.filter(i => i.startsWith("s_")).sort().join(",");
 }
 
 export function showShop(itemIds, cores, ownedIds) {
-  shopState = { items: itemIds, owned: new Set(ownedIds), cores };
-  shopRenderKey = shopKey(cores, shopState.owned);
+  shopState = { items: itemIds, ownedArr: [...(ownedIds ?? [])], cores };
+  shopRenderKey = shopKey(cores, shopState.ownedArr);
   renderShopCards();
   showScreen("screen-shop");
 }
 export function updateShop(cores, ownedIds) {
   if ($("screen-shop").classList.contains("hidden")) return;
-  const owned = ownedIds ? new Set(ownedIds) : shopState.owned;
-  const key = shopKey(cores, owned);
+  const ownedArr = ownedIds ? [...ownedIds] : shopState.ownedArr;
+  const key = shopKey(cores, ownedArr);
   if (key === shopRenderKey) return; // nothing changed — leave the DOM alone
   shopRenderKey = key;
   shopState.cores = cores;
-  shopState.owned = owned;
+  shopState.ownedArr = ownedArr;
   renderShopCards();
 }
 function renderShopCards() {
@@ -210,13 +211,15 @@ function renderShopCards() {
   for (const id of shopState.items) {
     const it = shopItemById(id);
     if (!it) continue;
-    const owned = it.once && shopState.owned.has(id);
+    const stacks = shopState.ownedArr.filter(m => m === id).length;
+    const owned = it.once && stacks > 0;
     const poor = shopState.cores < it.price;
     const card = document.createElement("div");
     card.className = "card shopcard" + (owned ? " owned" : poor ? " poor" : "");
+    const stackBadge = !it.once && stacks > 0 ? ` <span class="stacks">×${stacks}</span>` : "";
     card.innerHTML =
-      `<div class="fam">${it.pilot === null ? "ANY CLASS" : PILOTS[it.pilot].symbol + " " + PILOTS[it.pilot].name}</div>` +
-      `<div class="nm">${it.name}</div><div class="ds">${it.desc}</div>` +
+      `<div class="fam">${it.pilot === null ? "ANY CLASS" : PILOTS[it.pilot].symbol + " " + PILOTS[it.pilot].name}${it.once ? " · SIGNATURE" : ""}</div>` +
+      `<div class="nm">${it.name}${stackBadge}</div><div class="ds">${it.desc}</div>` +
       `<div class="price">${owned ? "OWNED" : "⬡ " + it.price}</div>`;
     if (!owned && !poor) {
       card.onclick = () => ui.onAction?.({ t: "buy", id });

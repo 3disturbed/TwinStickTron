@@ -150,6 +150,7 @@ input:focus { border-color: #39f0ff; box-shadow: 0 0 12px rgba(57, 240, 255, 0.3
 .card.shopcard.poor:hover { transform: none; box-shadow: none; border-color: #2c3f66; }
 .card.shopcard.small { width: 118px; font-size: 0.85em; }
 .card.shopcard.ready { border-color: #b8ff5e88; }
+.card.shopcard .stacks { color: #b8ff5e; font-size: 0.8em; }
 .btn.shoptab { border-color: #ffe45b88; color: #ffe45b; }
 
 /* challenge links */

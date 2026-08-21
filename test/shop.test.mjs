@@ -54,18 +54,21 @@ test("buy: deducts, applies, and rejects wrong-class/duplicate/poor/closed", () 
   assert.ok(sim.events.some(e => e.t === "bought" && e.mod === "s_g_plate"));
 
   sim.events.length = 0;
-  sim.action(p, { t: "buy", id: "s_g_plate" }); // duplicate `once` item
-  assert.equal(p.cores, 50, "owned items can't be re-bought");
+  p.cores = 200;
+  sim.action(p, { t: "buy", id: "s_b_twin" }); // signature `once` item (70⬡)
+  sim.action(p, { t: "buy", id: "s_b_twin" }); // duplicate
+  assert.equal(p.cores, 130, "signature items can't be re-bought");
   assert.ok(sim.events.some(e => e.t === "shop_err" && e.why === "owned"));
 
   sim.events.length = 0;
   sim.action(p, { t: "buy", id: "s_d_whirl" }); // DAVE-only, we are BINK
-  assert.equal(p.cores, 50);
+  assert.equal(p.cores, 130);
   assert.ok(sim.events.some(e => e.t === "shop_err" && e.why === "wrong_class"));
 
   sim.events.length = 0;
-  sim.action(p, { t: "buy", id: "s_b_phase" }); // 70⬡ > 50⬡
-  assert.equal(p.cores, 50);
+  p.cores = 10;
+  sim.action(p, { t: "buy", id: "s_b_cdr" }); // 35⬡ > 10⬡
+  assert.equal(p.cores, 10);
   assert.ok(sim.events.some(e => e.t === "shop_err" && e.why === "poor"));
 
   // repeatable consumable-style item buys twice
@@ -73,6 +76,30 @@ test("buy: deducts, applies, and rejects wrong-class/duplicate/poor/closed", () 
   sim.action(p, { t: "buy", id: "s_g_adren" });
   sim.action(p, { t: "buy", id: "s_g_adren" });
   assert.equal(p.cores, 50, "non-once items repeat");
+});
+
+test("stackables stack: weaker each, stronger together", () => {
+  const sim = combatSim([0]);
+  const p = sim.players.get(1);
+  sim.beginIntermission();
+  p.cores = 200;
+  const dmg0 = p.stats.dmg;
+  sim.action(p, { t: "buy", id: "s_b_rifle" }); // +8% dmg, stackable
+  const dmg1 = p.stats.dmg;
+  sim.action(p, { t: "buy", id: "s_b_rifle" });
+  const dmg2 = p.stats.dmg;
+  assert.ok(Math.abs(dmg1 - dmg0 * 1.08) < 1e-9, "one stack = +8%");
+  assert.ok(Math.abs(dmg2 - dmg0 * 1.08 * 1.08) < 1e-9, "two stacks compound");
+  assert.equal(p.cores, 200 - 60, "each stack costs full price");
+  assert.equal(p.mods.filter(m => m === "s_b_rifle").length, 2);
+  // ability-cooldown lines stack too, floored server-side at 2s
+  p.cores = 500;
+  for (let i = 0; i < 6; i++) sim.action(p, { t: "buy", id: "s_b_cdr" });
+  assert.equal(p.mods.filter(m => m === "s_b_cdr").length, 6, "all six stacks bought");
+  assert.ok(p.stats.abilityCdr >= 6, "cd reduction stacks (random class grant may add more)");
+  sim.phase = 1; // WAVE — abilities usable
+  sim.ability(p);
+  assert.ok(p.abilCd >= 2, "cd stacking can't push the ability below the 2s floor");
 });
 
 test("intermission only shortens when everyone has picked AND shopped", () => {
@@ -89,14 +116,25 @@ test("intermission only shortens when everyone has picked AND shopped", () => {
   assert.ok(sim.phaseT <= 3, "everyone done → timer collapses");
 });
 
-test("shop catalog integrity: every class has ≥3 items priced sanely", () => {
+test("shop catalog: every class has ≥5 items, ≥3 stackables, an ability-cd line", () => {
   for (let pilot = 0; pilot < 8; pilot++) {
     const mine = shopFor(pilot).filter(i => i.pilot === pilot);
-    assert.ok(mine.length >= 3, `pilot ${pilot} has only ${mine.length} shop items`);
+    assert.ok(mine.length >= 5, `pilot ${pilot} has only ${mine.length} shop items`);
+    const stackables = mine.filter(i => !i.once);
+    assert.ok(stackables.length >= 3, `pilot ${pilot} has only ${stackables.length} stackables`);
+    // every class must be able to buy down its ability cooldown
+    const hasCdr = mine.some(i => {
+      const s = { abilityCdr: 0 };
+      try { i.apply(s); } catch { /* stats-shape items */ }
+      return s.abilityCdr > 0;
+    });
+    assert.ok(hasCdr, `pilot ${pilot} has no ability-cooldown shop line`);
   }
   for (const it of shopFor(0)) {
     assert.ok(it.price > 0 && it.price <= 200, `${it.id} price out of band`);
     assert.ok(shopItemById(it.id), `${it.id} not resolvable`);
+    // stackables must be cheap-ish; signatures may run hot
+    if (!it.once) assert.ok(it.price <= 50, `${it.id} is stackable but pricey (${it.price})`);
   }
 });
 

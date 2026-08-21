@@ -316,9 +316,9 @@ net.onEvent = (ev) => {
         UI.toast(`⬡ Bought ${it.name}`, 2000);
         sfx.buy();
       }
-      // couch seats: keep prediction stats in sync with purchases
+      // couch seats: keep prediction stats in sync (stackables repeat)
       const bSeat = world.locals.find(l => l.id === ev.who);
-      if (bSeat && !bSeat.mods.includes(ev.mod)) {
+      if (bSeat) {
         bSeat.mods.push(ev.mod);
         bSeat.stats = computeStats(PILOTS[bSeat.pilot], bSeat.mods);
       }
@@ -412,8 +412,9 @@ net.onEvent = (ev) => {
       break;
     case "picked": {
       // keep couch seats' prediction stats in sync with their drafts
+      // (no dedupe — the same mod picked/bought twice legitimately stacks)
       const seat = world.locals.find(l => l.id === ev.who);
-      if (seat && !seat.mods.includes(ev.mod)) {
+      if (seat) {
         seat.mods.push(ev.mod);
         seat.stats = computeStats(PILOTS[seat.pilot], seat.mods);
       }

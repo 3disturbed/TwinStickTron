@@ -486,7 +486,7 @@ export class Sim {
     const w = p.weapon, s = p.stats;
     const dmg = w.dmg * s.dmg * dmgMul;
     const full = s.cleave360 > 0;
-    const arcHalf = full ? Math.PI : w.arcHalf;
+    const arcHalf = full ? Math.PI : Math.min(Math.PI, w.arcHalf * s.cleaveArcMul);
     for (const e of this.enemies.values()) {
       if (e.phased) continue;
       const d = Math.hypot(e.x - p.x, e.y - p.y);
@@ -1177,7 +1177,8 @@ export class Sim {
       }
     }
     this.emit({ t: "kill", kind: e.kind, x: Math.round(e.x), y: Math.round(e.y), points, who: killer?.id ?? 0 });
-    if (def.dropChance && this.rngDrop() < def.dropChance) {
+    const luck = 1 + (killer?.stats.dropLuck ?? 0); // Lucky Charm stacks
+    if (def.dropChance && this.rngDrop() < Math.min(1, def.dropChance * luck)) {
       this.spawnPickup(rollConsumable(this.rngDrop), e.x, e.y);
     }
     if (def.onDeath?.pattern) this.emitPattern(PATTERN_IDS[def.onDeath.pattern], e.x, e.y, 0, def.name);

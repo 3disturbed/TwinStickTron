@@ -74,6 +74,8 @@ export function baseStats(pilot) {
     wellDmg: 0,        // DAVE extra detonation damage
     cleave360: 0,      // DAVE cleave hits all around (shop)
     aftershock: 0,     // DAVE cleave launches a shockwave slug (shop)
+    cleaveArcMul: 1,   // DAVE cleave arc width multiplier (shop)
+    dropLuck: 0,       // consumable drop-chance bonus (shop, stacks)
     chainHops: 0,      // SPARKS extra chain jumps
     chainDmgBonus: 0,  // SPARKS chain hop damage bonus (0.5 base + this)
     pylonCount: 0,     // SPARKS extra pylons per cast
